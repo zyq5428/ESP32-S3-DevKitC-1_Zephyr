@@ -89,12 +89,24 @@ i2s_led: &i2s0 {
 		reg = <0>;
 		chain-length = <1>;
 		color-mapping = <LED_COLOR_ID_GREEN
-				 LED_COLOR_ID_RED
-				 LED_COLOR_ID_BLUE>;
+				        LED_COLOR_ID_RED
+				        LED_COLOR_ID_BLUE>;
 		reset-delay = <500>;
 	};
 };
 
 &dma {
 	status = "okay";
+};
+
+&wifi {
+    status = "okay";
+};
+
+&esp32_bt_hci {
+    status = "okay";
+};
+
+&trng0 {
+    status = "okay";
 };

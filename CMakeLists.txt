@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 
 # 告诉 Zephyr 在哪里找自定义的设备树绑定文件
-list(APPEND DTC_OVERLAY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/esp32s3_devkitc_procpu.overlay")
+# list(APPEND DTC_OVERLAY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/esp32s3_devkitc_procpu.overlay")
 
 # 设置自定义设备树绑定文件 (Bindings) 的搜索根目录。
 # ${CMAKE_CURRENT_SOURCE_DIR} 指的是当前 CMakeLists.txt 所在的文件夹路径。
@@ -39,6 +39,6 @@ target_sources(app PRIVATE
 
 # (可选) 链接所需的 Zephyr 库
 # 正确的链接方式：只需要链接到 'zephyr' 目标
-target_link_libraries(app PRIVATE
-    zephyr
-)
+# target_link_libraries(app PRIVATE
+#     zephyr
+# )

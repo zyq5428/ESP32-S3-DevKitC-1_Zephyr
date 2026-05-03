@@ -45,10 +45,11 @@ Get-ChildItem -Path . -Recurse -Include *.overlay,*.dts,*.dtsi | Select-String -
 
 ```
 west build -p always -b esp32s3_devkitc/esp32s3/procpu .\zephyr\samples\basic\button\
-west build -p auto -b esp32s3_devkitc/esp32s3/procpu .\esp32_app
-west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp32_app
-west build -b esp32s3_devkitc/esp32s3/procpu -t menuconfig .\esp32_app
-west build -b esp32s3_devkitc/esp32s3/procpu -t guiconfig .\esp32_app
+west build -p auto -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+west build -b esp32s3_devkitc/esp32s3/procpu -t menuconfig .\esp_app
+west build -b esp32s3_devkitc/esp32s3/procpu -t guiconfig .\esp_app
+ west build -t menuconfig
 west flash --esp-device COM15
 west espressif monitor -p COM15
 # 烧录完成后立即启动监视器
