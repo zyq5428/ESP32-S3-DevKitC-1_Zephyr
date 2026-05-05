@@ -36,7 +36,8 @@ target_sources(app PRIVATE
     src/led_thread.c
     src/button_thread.c
     # src/bt_beacon_thread.c
-    src/bt_broadcaster_thread.c
+    # src/bt_broadcaster_thread.c
+    src/bt_bthome_sensor_thread.c
     # src/bt_peripheral_thread.c
 )
 
