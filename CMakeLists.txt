@@ -35,6 +35,7 @@ target_sources(app PRIVATE
     src/main.c
     src/led_thread.c
     src/button_thread.c
+    src/bt_peripheral_thread.c
 )
 
 # (可选) 链接所需的 Zephyr 库
