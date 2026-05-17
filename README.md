@@ -48,6 +48,7 @@ west build -p always -b esp32s3_devkitc/esp32s3/procpu .\zephyr\samples\basic\bu
 west build -p auto -b esp32s3_devkitc/esp32s3/procpu .\esp_app
 west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
 west build -p always -b esp32s3_devkitc/esp32s3/procpu --sysbuild .\esp_app
+est build -p always -b esp32s3_devkitc/esp32s3/procpu -S espressif-flash-32M --sysbuild .\esp_app
 west build -b esp32s3_devkitc/esp32s3/procpu -t menuconfig .\esp_app
 west build -b esp32s3_devkitc/esp32s3/procpu -t guiconfig .\esp_app
 west build -t menuconfig
@@ -75,6 +76,18 @@ openocd `
         -c "flash write_image erase E:/zephyrproject/build/zephyr/zephyr.hex" `
         -c "reset run" `
         -c "shutdown"
+```
+
+```
+&flash0 {
+	/delete-node/ partitions;
+};
+
+&flash0 {
+	reg = <0x0 DT_SIZE_M(32)>;
+};
+
+#include <espressif/partitions_0x1000_amp_32M.dtsi>
 ```
 
 ### 清理构建（Build）目录
