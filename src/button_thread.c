@@ -32,9 +32,14 @@ static struct gpio_dt_spec led = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios,
 void button_pressed(const struct device *dev, struct gpio_callback *cb,
 		    uint32_t pins)
 {
-	LOG_INF("Button pressed at %" PRIu32 "\n", k_cycle_get_32());
+	LOG_DBG("Button pressed at %" PRIu32 "\n", k_cycle_get_32());
 }
 
+/**
+ * @brief 按钮线程入口函数
+ * 
+ * @param p1, p2, p3 线程参数（由 K_THREAD_DEFINE 传入，此处未使用）
+ */
 void button_thread_entry(void *p1, void *p2, void *p3)
 {
 	int ret;
@@ -62,7 +67,7 @@ void button_thread_entry(void *p1, void *p2, void *p3)
 
 	gpio_init_callback(&button_cb_data, button_pressed, BIT(button.pin));
 	gpio_add_callback(button.port, &button_cb_data);
-	LOG_INF("Set up button at %s pin %d\n", button.port->name, button.pin);
+	LOG_DBG("Set up button at %s pin %d\n", button.port->name, button.pin);
 
 	if (led.port && !gpio_is_ready_dt(&led)) {
 		LOG_ERR("Error %d: LED device %s is not ready; ignoring it\n",
@@ -76,11 +81,11 @@ void button_thread_entry(void *p1, void *p2, void *p3)
 			       ret, led.port->name, led.pin);
 			led.port = NULL;
 		} else {
-			LOG_INF("Set up LED at %s pin %d\n", led.port->name, led.pin);
+			LOG_DBG("Set up LED at %s pin %d\n", led.port->name, led.pin);
 		}
 	}
 
-	LOG_INF("Press the button\n");
+	LOG_DBG("Press the button\n");
 	if (led.port) {
 		while (1) {
 			/* If we have an LED, match its state to the button's. */

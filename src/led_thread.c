@@ -97,7 +97,7 @@ void led_thread_entry(void *p1, void *p2, void *p3)
     }
 
 	/* --- 第一部分：流水灯演示 (红 -> 绿 -> 蓝) --- */
-    LOG_INF("Starting startup sequence...");
+    LOG_DBG("Starting startup sequence...");
 	// 分别调用封装好的函数，跑一遍红色，再跑一遍绿色，再跑一遍蓝色
 	// 1000ms 一颗，速度较快
     run_marquee(red, 1000);
@@ -109,7 +109,7 @@ void led_thread_entry(void *p1, void *p2, void *p3)
     led_strip_update_rgb(strip, pixels, STRIP_NUM_PIXELS);
 
 	/* --- 第二部分：呼吸灯模式 (主循环) --- */
-    LOG_INF("Entering main breathing loop...");
+    LOG_DBG("Entering main breathing loop...");
     
     int brightness = 0;
     int step = 1;
