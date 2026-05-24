@@ -44,20 +44,33 @@ Get-ChildItem -Path . -Recurse -Include *.overlay,*.dts,*.dtsi | Select-String -
 ### 编译指定开发板
 
 ```
+# 彻底删除编译目录
+Remove-Item -Recurse -Force build
+# 编译官方例程
 west build -p always -b esp32s3_devkitc/esp32s3/procpu .\zephyr\samples\basic\button\
+# 编译自定义应用
 west build -p auto -b esp32s3_devkitc/esp32s3/procpu .\esp_app
 west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+# 同时编译mcuboot和app
 west build -p always -b esp32s3_devkitc/esp32s3/procpu --sysbuild .\esp_app
+# 使用snippets修改flash和ram大小
 est build -p always -b esp32s3_devkitc/esp32s3/procpu -S espressif-flash-32M --sysbuild .\esp_app
+# 查看menuconfig和guiconfig
 west build -b esp32s3_devkitc/esp32s3/procpu -t menuconfig .\esp_app
 west build -b esp32s3_devkitc/esp32s3/procpu -t guiconfig .\esp_app
 west build -t menuconfig
+# 查看mcuboot的menuconfig
+west build -t mcuboot_menuconfig
+# 烧录esp开发板，指定烧录串口
 west flash --esp-device COM15
+# 监听esp开发板，指定对应串口
 west espressif monitor -p COM15
-
-west flash --esp-device COM15 -- --flash-size 32m
-west flash --esp-device COM15 -- --flash-size detect
-
+# 指定flash大小烧录
+west flash --esp-device COM15 -- --esp-flash-size=32MB
+# 烧录MCUboot 到 0x0
+python -m esptool --chip esp32s3 --port COM15 --baud 921600 write-flash --flash-size 32MB 0x0 build/mcuboot/zephyr/zephyr.bin
+# 烧录主应用到 0x20000
+python -m esptool --chip esp32s3 --port COM15 --baud 921600 write-flash --flash-size 32MB 0x20000 build/esp_app/zephyr/zephyr.bin
 # 烧录完成后立即启动监视器
 west flash --esp-device COM15 ; west espressif monitor -p COM15
 west flash --esp-device COM21 ; west espressif monitor -p COM21

@@ -6,9 +6,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/services/nus.h> // 核心：引入 NUS 服务头文件
+#include "led_control.h"
 
 #define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN		(sizeof(DEVICE_NAME) - 1)
+
+/* 定义并初始化全局 LED 模式，默认开机为绿色呼吸灯 */
+volatile led_mode_t g_led_mode = LED_MODE_BREATHE_GREEN;
 
 /* 广播数据：设备启动后，手机扫描到时看到的信息 */
 static const struct bt_data ad[] = {
@@ -40,6 +44,38 @@ static void received(struct bt_conn *conn, const void *data, uint16_t len, void 
 
 	/* 打印接收到的数据长度和内容 */
 	printk("%s() - Len: %d, Message: %.*s\n", __func__, len, len, (char *)data);
+
+	/* 【新逻辑】解析手机发送过来的控制指令 */
+	if (len > 0) {
+		// 取出接收到的第一个字节（字符）
+		char cmd = ((char *)data)[0]; 
+
+		// 根据不同的字符，修改全局的 LED 模式变量
+		switch (cmd) {
+			case 'R':
+			case 'r':
+				g_led_mode = LED_MODE_BREATHE_RED;
+				printk("蓝牙指令：切换为 [红色] 呼吸灯\n");
+				break;
+			case 'G':
+			case 'g':
+				g_led_mode = LED_MODE_BREATHE_GREEN;
+				printk("蓝牙指令：切换为 [绿色] 呼吸灯\n");
+				break;
+			case 'B':
+			case 'b':
+				g_led_mode = LED_MODE_BREATHE_BLUE;
+				printk("蓝牙指令：切换为 [蓝色] 呼吸灯\n");
+				break;
+			case '0':
+				g_led_mode = LED_MODE_OFF;
+				printk("蓝牙指令：[关闭] LED 灯\n");
+				break;
+			default:
+				printk("未知的蓝牙指令: %c\n", cmd);
+				break;
+		}
+	}
 }
 
 /* 将上面定义的两个回调函数注册到 NUS 结构体中 */

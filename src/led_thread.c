@@ -11,6 +11,7 @@ LOG_MODULE_REGISTER(LED_TASK, LOG_LEVEL_INF);
 #include <zephyr/device.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
+#include "led_control.h"
 
 // 从设备树 (Device Tree) 中获取别名为 "led_strip" 的节点标识符
 #define STRIP_NODE    DT_ALIAS(led_strip)
@@ -116,23 +117,56 @@ void led_thread_entry(void *p1, void *p2, void *p3)
 
     // 线程主循环
     while (1) {
-		for (size_t cursor = 0; cursor < ARRAY_SIZE(pixels); cursor++) {
-            // 这里以白光呼吸为例 (红绿蓝三色同步变化)
-            pixels[cursor].r = 0;
-            pixels[cursor].g = brightness;
-            pixels[cursor].b = 0;
+        /* 【新逻辑】遍历所有灯珠，根据蓝牙修改的全局变量 g_led_mode 分配颜色 */
+		for (size_t cursor = 0; cursor < ARRAY_SIZE(pixels); cursor++) {           
+            switch (g_led_mode) {
+                case LED_MODE_OFF:
+                    // 所有颜色通道全部清零
+                    pixels[cursor].r = 0;
+                    pixels[cursor].g = 0;
+                    pixels[cursor].b = 0;
+                    break;
+                case LED_MODE_BREATHE_RED:
+                    // 只有红色通道跟随亮度变化
+                    pixels[cursor].r = brightness;
+                    pixels[cursor].g = 0;
+                    pixels[cursor].b = 0;
+                    break;
+                case LED_MODE_BREATHE_GREEN:
+                    // 只有绿色通道跟随亮度变化
+                    pixels[cursor].r = 0;
+                    pixels[cursor].g = brightness;
+                    pixels[cursor].b = 0;
+                    break;
+                case LED_MODE_BREATHE_BLUE:
+                    // 只有蓝色通道跟随亮度变化
+                    pixels[cursor].r = 0;
+                    pixels[cursor].g = 0;
+                    pixels[cursor].b = brightness;
+                    break;
+            }
         }
 
+        // 把设置好的颜色和亮度数据更新到硬件灯带
         rc = led_strip_update_rgb(strip, pixels, STRIP_NUM_PIXELS);
 		if (rc) {
 			LOG_ERR("couldn't update strip: %d", rc);
 		}
 
-        brightness += step;
-        if (brightness <= 0 || brightness >= LIGHT_MAX) {
-            step = -step;
+        /* 【新逻辑】计算下一帧的亮度 */
+        if (g_led_mode != LED_MODE_OFF) {
+            // 如果不是关闭状态，进行正常的呼吸计算
+            brightness += step;
+            if (brightness <= 0 || brightness >= LIGHT_MAX) {
+                step = -step; // 到达两端极值则反转方向
+            }
+        } else {
+            // 如果是关闭状态，强制让亮度归零，方便下次开启时重新变亮
+            brightness = 0;
+            step = 1;
         }
 
+        // 每次循环延时，控制呼吸变换的平滑度
         k_sleep(DELAY_TIME);
     }
 }
