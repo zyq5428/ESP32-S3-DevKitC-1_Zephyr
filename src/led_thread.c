@@ -27,8 +27,8 @@ LOG_MODULE_REGISTER(LED_TASK, LOG_LEVEL_INF);
 
 // 定义呼吸灯亮度改变的间隔(ms)
 #define DELAY_TIME K_MSEC(50)
-// 定义呼吸灯亮度上线(0-255)
-#define LIGHT_MAX 0x40
+// 定义呼吸灯亮度上限(0-255)，移到头文件方便蓝牙和LED线程共同使用
+// #define LIGHT_MAX 0x40
 
 // 定义一个宏，方便快速创建 led_rgb 结构体实例（包含红、绿、蓝三个分量）
 #define RGB(_r, _g, _b) { .r = (_r), .g = (_g), .b = (_b) }
@@ -153,7 +153,10 @@ void led_thread_entry(void *p1, void *p2, void *p3)
 			LOG_ERR("couldn't update strip: %d", rc);
 		}
 
-        /* 【新逻辑】计算下一帧的亮度 */
+        /* 将本地算好的当前帧亮度，实时同步给全局变量，供蓝牙线程读取 */
+        g_led_brightness = brightness;
+
+        /* 计算下一帧的亮度 */
         if (g_led_mode != LED_MODE_OFF) {
             // 如果不是关闭状态，进行正常的呼吸计算
             brightness += step;

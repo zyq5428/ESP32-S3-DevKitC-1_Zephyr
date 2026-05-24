@@ -6,13 +6,15 @@
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/services/nus.h> // 核心：引入 NUS 服务头文件
+#include <stdio.h>
 #include "led_control.h"
 
 #define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN		(sizeof(DEVICE_NAME) - 1)
 
-/* 定义并初始化全局 LED 模式，默认开机为绿色呼吸灯 */
+/* 定义并初始化全局 LED 模式，默认开机为绿色呼吸灯，默认亮度为 0 */
 volatile led_mode_t g_led_mode = LED_MODE_BREATHE_GREEN;
+volatile int g_led_brightness = 0;
 
 /* 广播数据：设备启动后，手机扫描到时看到的信息 */
 static const struct bt_data ad[] = {
@@ -121,22 +123,36 @@ void bt_thread_entry(void *p1, void *p2, void *p3)
 
 	printk("Initialization complete\n");
 
-	/* 4. 主循环：每隔 3 秒向手机发送一次 "Hello World!" (相当于串口 TX) */
+	/* 主循环：每隔 3 秒向手机发送一次LED状态 (相当于串口 TX) */
 	while (true) {
-		const char *hello_world = "Hello World!\n";
-
+		// 倒计时 3 秒
 		k_sleep(K_SECONDS(3));
 
-		/* 发送数据到手机
-		 * 第一个参数为 NULL 表示发送给所有已连接的客户端
-		 */
-		err = bt_nus_send(NULL, hello_world, strlen(hello_world));
+		//  将当前的模式枚举转换为字符串文字
+		const char *color_str;
+		switch (g_led_mode) {
+			case LED_MODE_OFF:           color_str = "OFF";   break;
+			case LED_MODE_BREATHE_RED:   color_str = "RED";   break;
+			case LED_MODE_BREATHE_GREEN: color_str = "GREEN"; break;
+			case LED_MODE_BREATHE_BLUE:  color_str = "BLUE";  break;
+			default:                     color_str = "UNKNOWN"; break;
+		}
 
-		/* 错误处理：如果是缓冲区满(-EAGAIN)或未连接(-ENOTCONN)，通常忽略 */
+		// 计算当前的占空比百分比
+		// 公式：(当前亮度值 * 100) / 最大亮度值
+		int duty_cycle = (g_led_brightness * 100) / LIGHT_MAX;
+
+		// 组装超短文本，例如: "GREEN:45%\n"
+		// 这样设计的好处是长度在 7 ~ 11 字节之间，远低于蓝牙默认的 20 字节限制！
+		char tx_buffer[24];
+		snprintf(tx_buffer, sizeof(tx_buffer), "%s:%d%%\n", color_str, duty_cycle);
+		/*  发送动态组装好的状态数据到手机 */
+		err = bt_nus_send(NULL, tx_buffer, strlen(tx_buffer));
+
 		if (err < 0 && (err != -EAGAIN) && (err != -ENOTCONN)) {
 			return ;
 		} else if (err == 0) {
-            printk("Data send - Result: %d\n", err);
+            printk("Data send success: %s", tx_buffer);
         }
 	}
 
