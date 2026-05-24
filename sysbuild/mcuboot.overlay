@@ -1,7 +1,105 @@
 /* * 专供 MCUboot 引导程序域加载的自定义设备树叠加层
  * 详细注释：主应用由于不依赖此文件，从而实现多镜像设备树完美隔离
  */
+
+/*
+ * ESP32-S3 外部 32MB 八线 Flash (经典 Swap 模式) 分区表覆盖定义
+ * 通过精准标签引用 (&)，直接强行重写物理区间，100% 避免 Label 重复冲突
+ */
 &flash0 {
-	/* 1. 锁死外部物理 Flash 总大小为 32MB (十六进制上限 0x2000000) */
-	reg = <0x0 DT_SIZE_M(32)>;
+    /* 1. 锁死外部物理 Flash 总大小为 32MB (十六进制上限 0x2000000) */
+    reg = <0x0 DT_SIZE_M(32)>;
+
+    /* 2. 深入到 partitions 容器内部，通过路径覆盖将地址与节点名一字不差地绑死 */
+    partitions {
+        compatible = "fixed-partitions";
+        #address-cells = <0x1>;
+        #size-cells = <0x1>;
+
+		/* 🌟 核心杀招：使用绝对路径或节点名，彻底将官方旧定义里的“不合规节点”物理蒸发！ */
+		/delete-node/ partition@0;
+		/delete-node/ partition@10000;
+		/delete-node/ partition@20000;
+		/delete-node/ partition@170000;
+		/delete-node/ partition@2c0000;
+		/delete-node/ partition@330000;
+		/delete-node/ partition@3a0000;
+		/delete-node/ partition@3a8000;
+		/delete-node/ partition@3b0000;
+		/delete-node/ partition@3e0000;
+		/delete-node/ partition@3ff000;
+
+        /* 1. MCUboot 引导程序区：系统启动的第一跳，负责校验和加载固件 */
+        boot_partition: partition@0 {
+            label = "mcuboot";
+            reg = <0x0 DT_SIZE_K(64)>; /* 占用 64KB */
+        };
+
+        /* 2. 系统保留区：可能用于存放分区表索引、系统标志位或必要的硬件配置参数 */
+        sys_partition: partition@10000 {
+            label = "sys";
+            reg = <0x10000 DT_SIZE_K(64)>; /* 占用 64KB */
+        };
+
+        /* 3. 主核心 (ProCPU) 的主程序区 (Slot 0) */
+        slot0_partition: partition@20000 {
+            label = "image-0";
+            reg = <0x20000 DT_SIZE_K(12096)>; /* 约 11.8MB */
+        };
+
+        /* 4. 主核心 (ProCPU) 的升级备份区 (Slot 1) */
+        slot1_partition: partition@bf0000 {
+            label = "image-1";
+            reg = <0xbf0000 DT_SIZE_K(12096)>; /* 大小与 Slot 0 必须对称 */
+        };
+
+        /* 5. AppCPU (副核心) 的主程序区 */
+        slot0_appcpu_partition: partition@17c0000 {
+            label = "image-0-appcpu";
+            reg = <0x17c0000 DT_SIZE_K(4032)>; /* 约 3.9MB */
+        };
+
+        /* 6. AppCPU (副核心) 的升级备份区 */
+        slot1_appcpu_partition: partition@1bb0000 {
+            label = "image-1-appcpu";
+            reg = <0x1bb0000 DT_SIZE_K(4032)>;
+        };
+
+        /* 7. LP-Core (低功耗核心) 的主程序区 */
+        slot0_lpcore_partition: partition@1fa0000 {
+            label = "image-0-lpcore";
+            reg = <0x1fa0000 DT_SIZE_K(32)>; /* 32KB，通常用于超轻量级代码 */
+        };
+
+        /* 8. LP-Core (低功耗核心) 的升级备份区 */
+        slot1_lpcore_partition: partition@1fa8000 {
+            label = "image-1-lpcore";
+            reg = <0x1fa8000 DT_SIZE_K(32)>;
+        };
+
+        /* 9. 数据存储区：用于存放文件系统 (如 LittleFS/FATFS) 或 NVS 参数 */
+        storage_partition: partition@1fb0000 {
+            label = "storage";
+            reg = <0x1fb0000 DT_SIZE_K(192)>; /* 192KB */
+        };
+
+        /* 10. 临时交换区：OTA 升级过程中，MCUboot 使用该区域进行镜像搬运/恢复 */
+        scratch_partition: partition@1fe0000 {
+            label = "image-scratch";
+            reg = <0x1fe0000 DT_SIZE_K(124)>; /* 124KB */
+        };
+
+        /* 11. 崩溃转储区：系统发生异常 (Panic/Crash) 时保存现场信息 */
+        coredump_partition: partition@1fff000 {
+            label = "coredump";
+            reg = <0x1fff000 DT_SIZE_K(4)>; /* 4KB，用于存核心寄存器快照 */
+        };
+    };
+};
+
+/ {
+    chosen {
+        /* 强制将 MCUboot 的代码执行区域锁死在 boot 分区（0x0），拒绝继承 App 的 slot0 */
+        zephyr,code-partition = &boot_partition;
+    };
 };

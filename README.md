@@ -54,6 +54,10 @@ west build -b esp32s3_devkitc/esp32s3/procpu -t guiconfig .\esp_app
 west build -t menuconfig
 west flash --esp-device COM15
 west espressif monitor -p COM15
+
+west flash --esp-device COM15 -- --flash-size 32m
+west flash --esp-device COM15 -- --flash-size detect
+
 # 烧录完成后立即启动监视器
 west flash --esp-device COM15 ; west espressif monitor -p COM15
 west flash --esp-device COM21 ; west espressif monitor -p COM21
@@ -78,21 +82,10 @@ openocd `
         -c "shutdown"
 ```
 
-```
-&flash0 {
-	/delete-node/ partitions;
-};
-
-&flash0 {
-	reg = <0x0 DT_SIZE_M(32)>;
-};
-
-#include <espressif/partitions_0x1000_amp_32M.dtsi>
-```
-
 ### 清理构建（Build）目录
 
 ```
+Remove-Item -Recurse -Force build
 west build -t clean
 west build -t traceconfig
 ```

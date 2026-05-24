@@ -90,7 +90,7 @@ void led_thread_entry(void *p1, void *p2, void *p3)
 
     // 检查硬件设备是否已准备就绪（驱动是否加载成功）
     if (device_is_ready(strip)) {
-        LOG_INF("Found LED strip device %s", strip->name);
+        LOG_DBG("Found LED strip device %s", strip->name);
     } else {
         LOG_ERR("LED strip device %s is not ready", strip->name);
         return; // 如果设备不可用，终止线程
