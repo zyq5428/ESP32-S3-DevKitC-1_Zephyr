@@ -8,6 +8,8 @@
 /* [LCD] 引入 MIPI DBI 和显示面板的 DT 常量定义 */
 #include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
 #include <zephyr/dt-bindings/display/panel.h>
+/* [PWM] 引入 PWM 宏定义 (PWM_HZ, PWM_POLARITY_NORMAL 等) */
+#include <zephyr/dt-bindings/pwm/pwm.h>
 
 /*
  * ESP32-S3 外部 32MB 八线 Flash (经典 Swap 模式) 分区表覆盖定义
@@ -122,6 +124,8 @@
 
     aliases {
         led-strip = &led_strip;
+        /* [PWM 背光] 通过别名让 C 代码用 PWM_DT_SPEC_GET 获取 PWM 设备 */
+        pwm-backlight = &pwm_bl;
     };
 
     /*
@@ -227,6 +231,28 @@
         };
     };
 
+    /*
+     * [PWM 背光] LEDC PWM 控制 GPIO4 → LCD BLK
+     *
+     * 使用 ESP32-S3 的 LEDC 控制器，通道 0，定时器 0
+     * PWM_HZ(250): 250Hz 频率 (周期 4ms)，高于人眼闪烁感知阈值 (~50Hz)
+     *               低频 PWM 可以减少 EMI 同时保持无闪烁感
+     * PWM_POLARITY_NORMAL: 高电平点亮背光
+     *
+     * 对应 C 代码中:
+     *   PWM_DT_SPEC_GET(DT_ALIAS(pwm_backlight))
+     *   返回 &ledc0 通道 0 的 PWM 规格，用于 pwm_set_pulse_dt()
+     */
+    pwmleds {
+        compatible = "pwm-leds";
+        status = "okay";
+
+        pwm_bl: pwm_bl {
+            pwms = <&ledc0 0 PWM_HZ(250) PWM_POLARITY_NORMAL>;
+            label = "pwm_backlight";
+        };
+    };
+
     // leds {
     //     compatible = "gpio-leds";
     //     test_gpio38: led_0 {
@@ -237,19 +263,20 @@
     // };
 };
 
-/* 引脚复用配置：将 GPIO38 映射为 SPI3 的数据输出信号 (ID 68) */
+/*
+ * [LEDC 背光引脚复用] 将 GPIO4 映射为 LEDC 通道 0 的 PWM 输出
+ *
+ * LEDC_CH0_GPIO4 的定义位于:
+ *   zephyr/include/zephyr/dt-bindings/pinctrl/esp32s3-pinctrl.h
+ *   #define LEDC_CH0_GPIO4 ESP32_PINMUX(4, ESP_NOSIG, ESP_LEDC_LS_SIG_OUT0)
+ *
+ * output-enable: GPIO4 设为推挽输出模式
+ */
 &pinctrl {
-    spim3_ws2812_default: spim3_ws2812_default {
+    ledc0_default: ledc0_default {
         group1 {
-            /* * ESP32_PINMUX(1, 6, 68) 的含义：
-             * 1: GPIO 分组 1 (引脚 32-53)
-             * 6: 组内索引 6 (32 + 6 = 38)
-             * 68: SPI3_D_OUT (MOSI) 的信号 ID
-             */
-            pinmux = <ESP32_PINMUX(1, 6, 68)>;
-            /* 核心修正：显式开启输出使能，并关闭偏置电阻 */
+            pinmux = <LEDC_CH0_GPIO4>;
             output-enable;
-            bias-disable;
         };
     };
 };
@@ -319,4 +346,35 @@ i2s_led: &i2s0 {
     status = "okay";
     pinctrl-0 = <&spim2_default>;
     pinctrl-names = "default";
+};
+
+/*
+ * [LEDC PWM 控制器] ESP32-S3 的 LED 控制模块
+ *
+ * 配置说明:
+ *   - 通道 0 (channel0@0): 绑定到 GPIO4，用于 LCD 背光调光
+ *   - timer = <0>: 使用定时器 0 作为时钟源
+ *     LEDC 有 4 个独立定时器 (0~3)，每个定时器可以有不同频率
+ *
+ * 使用方式 (C 代码):
+ *   const struct pwm_dt_spec pwm_bl =
+ *       PWM_DT_SPEC_GET(DT_ALIAS(pwm_backlight));
+ *   pwm_set_pulse_dt(&pwm_bl, duty_ns);  // 设置占空比
+ */
+&ledc0 {
+    status = "okay";
+    pinctrl-0 = <&ledc0_default>;
+    pinctrl-names = "default";
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    /*
+     * [通道 0] LEDC 通道 0 — 输出到 GPIO4
+     * reg = <0x0>: 通道号 (必须匹配 pinctrl 中的 LEDC_CH0_GPIO4)
+     * timer = <0>: 使用定时器 0 (0~3)
+     */
+    channel0@0 {
+        reg = <0x0>;
+        timer = <0>;
+    };
 };

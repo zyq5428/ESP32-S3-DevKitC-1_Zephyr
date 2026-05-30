@@ -14,8 +14,8 @@
  *   - GPIO8  (DC)   → LCD DC
  *   - GPIO9  (RST)  → LCD RST
  *   - GPIO4  (BLK)  → LCD BLK (PWM 背光)
- *   - 3V3 / 5V       → LCD VCC
- *   - GND             → LCD GND
+ *   - 3V3 / 5V      → LCD VCC
+ *   - GND           → LCD GND
  *
  * 工作流程:
  *   1. 系统启动时 K_THREAD_DEFINE 自动创建线程
@@ -51,58 +51,108 @@
 LOG_MODULE_REGISTER(LCD_LVGL, LOG_LEVEL_INF);
 
 /* ==================== 全局变量定义 ==================== */
-volatile int g_lcd_brightness = 80; /* [初始化] 默认背光亮度 80% */
+volatile int g_lcd_brightness = 30; /* [初始化] 默认背光亮度 30% */
 volatile bool g_lvgl_ready = false; /* [初始化] LVGL 尚未就绪 */
+
+/* ==================== PWM 背光设备获取 ==================== */
+
+/*
+ * [设备树获取] 通过 pwm-backlight 别名获取 LEDC PWM 背光设备
+ *
+ * DT_ALIAS(pwm_backlight) 对应 overlay 中:
+ *   aliases { pwm-backlight = &pwm_bl; };
+ *   pwm_bl: pwm_bl { pwms = <&ledc0 0 PWM_HZ(250) PWM_POLARITY_NORMAL>; };
+ *
+ * PWM_DT_SPEC_GET 返回一个 pwm_dt_spec 结构体，包含:
+ *   .dev     = &ledc0 设备指针
+ *   .channel = 0         (LEDC 通道 0)
+ *   .period  = 4000000   (250Hz → 周期 4,000,000 纳秒)
+ *   .flags   = PWM_POLARITY_NORMAL
+ */
+static const struct pwm_dt_spec pwm_backlight =
+    PWM_DT_SPEC_GET(DT_ALIAS(pwm_backlight));
 
 /* ==================== 背光控制函数 ==================== */
 
 /*
- * [函数] 设置 LCD 背光亮度
+ * [函数] 设置 LCD 背光亮度 (PWM 无级调光)
  *
- * 通过 LEDC PWM 控制 GPIO4 输出占空比，实现无级调光。
- * 如果不需要调光，也可以直接用 GPIO 高低电平开关背光。
+ * 通过 ESP32-S3 的 LEDC 控制器在 GPIO4 输出 PWM 信号，
+ * 调节占空比实现从 0% (全黑) 到 100% (最亮) 的平滑无级调光。
+ *
+ * 工作原理:
+ *   PWM 频率 = 250Hz (周期 = 4,000,000 纳秒)
+ *   占空比 = brightness% × 周期
+ *   例如: brightness=80 → pulse=3,200,000ns (80% 占空比)
  *
  * 参数 brightness: 0~100，表示亮度百分比
- *   - 0: 关闭背光 (屏幕全黑)
- *   - 100: 最大亮度
+ *   - 0:   关闭背光 (占空比 0%，屏幕全黑)
+ *   - 100: 最大亮度 (占空比 100%，屏幕最亮)
+ *
+ * 注意:
+ *   - pwm_set_pulse_dt() 首次调用会自动初始化 LEDC 硬件
+ *   - 250Hz 的频率远超人眼闪烁阈值 (~50Hz)，画面无屏闪感
  */
 static void lcd_backlight_set(uint8_t brightness)
 {
-    /*
-     * [简化方案] 直接用 GPIO 开/关背光
-     * 如果需要 PWM 无级调光，可以用 overlay 配置 LEDC 通道，
-     * 然后在这里调用 pwm_set_pulse_dt() 调节占空比。
-     *
-     * 硬件: GPIO4 → LCD BLK 引脚 (高电平点亮)
-     */
-    const struct device *const gpio0_dev =
-        DEVICE_DT_GET(DT_NODELABEL(gpio0));
-    static bool backlight_inited = false;
+    int ret;
+    uint32_t pulse_ns;    /* [变量] PWM 高电平持续时间 (纳秒) */
 
-    if (!device_is_ready(gpio0_dev)) {
+    /*
+     * [就绪检查] 验证 LEDC PWM 设备是否可用
+     * pwm_is_ready_dt() 同时检查设备驱动和 DT 配置
+     */
+    if (!pwm_is_ready_dt(&pwm_backlight)) {
+        /*
+         * [降级处理] 如果 PWM 不可用，保持静默
+         * 可能是 overlay 中未正确配置 LEDC 节点
+         */
         return;
     }
 
-    if (!backlight_inited) {
-        /*
-         * [初始化] 首次调用时配置 GPIO4 为输出
-         * 低电平初始状态 (先灭后亮，避免闪烁)
-         */
-        gpio_pin_configure(gpio0_dev, 4, GPIO_OUTPUT_INACTIVE);
-        backlight_inited = true;
+    /*
+     * [钳位] 将亮度值限制在 0~100 范围内
+     * 防止异常输入导致占空比溢出
+     */
+    if (brightness > 100) {
+        brightness = 100;
     }
 
     /*
-     * [设置] 根据亮度值控制 GPIO
-     * brightness > 0 则点亮，= 0 则熄灭
-     * 简单二值控制，如果需要 PWM 无级调光可以替换为 LEDC
+     * [计算占空比] 将百分比转换为纳秒脉冲宽度
+     *
+     * 公式: pulse_ns = (brightness / 100) × period_ns
+     *
+     * 例如:
+     *   period = 4,000,000 ns (250Hz)
+     *   brightness = 80 → pulse = (80 × 4,000,000) / 100 = 3,200,000 ns
+     *   brightness = 25 → pulse = (25 × 4,000,000) / 100 = 1,000,000 ns
+     *   brightness = 0  → pulse = 0 (完全关闭)
+     *
+     * 使用 64 位中间计算防止乘法溢出:
+     *   brightness × period 最大 = 100 × 4,000,000 = 400,000,000
+     *   这个结果在 32 位范围内 (最大约 4.29×10^9)，所以 uint32_t 够用
      */
-    if (brightness > 0) {
-        gpio_pin_set_dt(&(struct gpio_dt_spec){
-            .port = gpio0_dev, .pin = 4}, 1);
-    } else {
-        gpio_pin_set_dt(&(struct gpio_dt_spec){
-            .port = gpio0_dev, .pin = 4}, 0);
+    pulse_ns = (uint32_t)(((uint64_t)brightness *
+                           (uint64_t)pwm_backlight.period) / 100U);
+
+    /*
+     * [核心操作] 设置 PWM 脉冲宽度 (即占空比)
+     *
+     * pwm_set_pulse_dt():
+     *   参数1: &pwm_backlight — PWM 设备规格 (包含 dev + channel)
+     *   参数2: pulse_ns       — 高电平持续时间 (纳秒)
+     *
+     * 返回值: 0 = 成功, 负数 = 错误码
+     *
+     * 注意:
+     *   - 首次调用会触发 LEDC 硬件初始化 (时钟、定时器、GPIO 引脚)
+     *   - 后续调用只需更新占空比寄存器，开销极小 (~数微秒)
+     *   - 在 ISR 中调用也是安全的 (LEDC 寄存器操作是原子性的)
+     */
+    ret = pwm_set_pulse_dt(&pwm_backlight, pulse_ns);
+    if (ret < 0) {
+        LOG_ERR("Failed to set backlight PWM (err %d)", ret);
     }
 }
 
@@ -287,8 +337,8 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
      * [背光] 先给背光上电，这样后续初始化过程中就能看到画面
      * 有些 LCD 模块背光接在板载 LDO 上，不需要额外控制
      */
-    lcd_backlight_set(80);
-    LOG_INF("Backlight set to 80%%");
+    lcd_backlight_set(g_lcd_brightness);
+    LOG_INF("Backlight set to %d%%", g_lcd_brightness);
 
     /* ---------- 步骤 2: 初始化显示设备 ---------- */
     display_dev = display_init();
