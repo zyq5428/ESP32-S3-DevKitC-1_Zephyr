@@ -387,50 +387,33 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
     lvgl_create_ui();
     LOG_INF("UI created, entering main loop...");
 
-    /* ---------- 步骤 5: 主循环 — 周期性刷新 LVGL ---------- */
+    /* ---------- 步骤 5: 主循环 — LVGL 由专用工作队列驱动 ---------- */
     /*
-     * [主循环] 每隔 10ms 调用一次 lv_timer_handler()
+     * [架构说明] CONFIG_LV_Z_RUN_LVGL_ON_WORKQUEUE=y 已启用
+     * LVGL 的 lv_timer_handler() 现在由 Zephyr 自动创建的
+     * 高优先级工作队列线程 (优先级 5) 周期性调用。
      *
-     * lv_timer_handler() 是 LVGL 的核心引擎，它:
-     *   1. 处理 LVGL 内部定时器 (动画、倒计时等)
-     *   2. 检查脏区 (dirty area)，对需要更新的区域重新渲染
-     *   3. 调用 Zephyr 的 flush 回调函数，将像素数据发送到 LCD
+     * 我们的线程不再需要调用 lv_timer_handler() —
+     * LVGL 渲染在后台独立运行, 互不阻塞。
      *
-     * 调用间隔:
-     *   - 10ms (100Hz): 流畅 UI，适合有动画的场景
-     *   - 15ms (~66Hz): 一般 UI，可节省 CPU
-     *   - 30ms (~33Hz): 静态 UI，CPU 占用最低
-     *
-     * 注意: lv_timer_handler() 只刷新有变化的部分 (partial refresh)
-     *       不必担心它消耗过多 CPU
+     * 本线程职责:
+     *   1. 初始化显示硬件和 LVGL 界面 (已完成)
+     *   2. 空闲循环: 休眠等待, 定期输出心跳日志
+     *   3. (未来) 可在此处理 UI 动态更新, 如切换页面/刷新数据
      */
     while (1) {
         /*
-         * [刷新] 调用 LVGL 渲染引擎
-         * 这个函数的耗时取决于 UI 变化量:
-         *   - 静态界面: <1ms
-         *   - 有动画: 几 ms
-         *
-         * 返回值是 LVGL 处理完到下次需要刷新之间的建议时延 (ms)
-         * 我们暂不依赖返回值，固定 10ms 周期更简单可靠
+         * [休眠] 长时间休眠, 让出 CPU 给 LVGL 工作队列和其他线程
+         * 不需要频繁唤醒 — UI 刷新由 LVGL 工作队列独立处理
          */
-        lv_timer_handler();
+        k_sleep(K_SECONDS(30));
 
         /*
-         * [休眠] 让出 CPU 10 毫秒
-         * k_msleep() 是阻塞调用，会触发上下文切换
-         * 这保证了其他线程 (BLE、LED 等) 有充足的运行时间
-         */
-        k_msleep(10);
-
-        /*
-         * [心跳] 每 6000 次循环 (约 60 秒) 打印一次调试信息
-         * 这可以帮助判断 LVGL 线程是否正常运行
+         * [心跳] 每 30 秒打印一次, 确认线程存活
+         * 避免频繁日志刷屏, 方便长期运行调试
          */
         loop_count++;
-        if ((loop_count % 6000) == 0) {
-            LOG_DBG("LVGL loop alive (%u iterations)", loop_count);
-        }
+        LOG_DBG("Display thread alive (%u min elapsed)", loop_count / 2);
     }
 }
 

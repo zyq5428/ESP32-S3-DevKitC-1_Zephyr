@@ -33,7 +33,7 @@ target_include_directories(app PRIVATE
 # 添加所有源文件到应用程序目标
 target_sources(app PRIVATE
     src/main.c
-    src/memory_thread.c
+    # src/memory_thread.c
     src/led_thread.c
     src/button_thread.c
     # src/bt_beacon_thread.c
