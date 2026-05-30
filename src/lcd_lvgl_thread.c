@@ -46,6 +46,7 @@
 
 /* ==================== 项目头文件 ==================== */
 #include "lcd_lvgl_thread.h"        /* [头文件] 全局变量声明 */
+#include "images/zephyr_200x116.h"  /* [头文件] Zephyr Logo 图像描述符 */
 
 /* ==================== 日志模块注册 ==================== */
 LOG_MODULE_REGISTER(LCD_LVGL, LOG_LEVEL_INF);
@@ -169,24 +170,32 @@ static void lcd_backlight_set(uint8_t brightness)
  */
 static void lvgl_create_ui(void)
 {
+    lv_obj_t *logo_img;       /* [LVGL 对象] Zephyr Logo 图像 */
     lv_obj_t *title_label;    /* [LVGL 对象] 标题标签 */
     lv_obj_t *info_label;     /* [LVGL 对象] 信息标签 */
     lv_obj_t *status_label;   /* [LVGL 对象] 状态标签 */
 
     /*
      * [获取] 获取当前活动屏幕对象
-     * lv_screen_active() 返回 LVGL 默认创建的屏幕
-     * 所有界面元素都是这个屏幕的子对象
      */
     lv_obj_t *screen = lv_screen_active();
 
-    /* ---------- 1. 设置屏幕背景色 ---------- */
     /*
-     * [背景色] 设置为深蓝色 (#1a237e)
-     * lv_color_hex() 将 HTML 颜色码转换为 LVGL 颜色结构体
-     * lv_obj_set_style_bg_color 设置背景色
-     * lv_obj_set_style_bg_opa 设置背景不透明度 (LV_OPA_COVER = 完全不透明)
+     * [布局规划] 屏幕 240×280, 圆角屏需要上边距避开圆角遮挡
+     *
+     *  y=0    ┌──────────────────────┐
+     *  y=20   │  ┌──────────────┐    │  ← Logo (200×116) 顶部留 20px 避开圆角
+     *         │  │  Zephyr Logo │    │
+     *  y=136  │  └──────────────┘    │  ← Logo 结束于 y=20+116=136
+     *  y=150  │   Zephyr + LVGL      │  ← 标题 (Logo下方 14px 间距)
+     *  y=172  │   ESP32-S3 DevKitC   │
+     *         │   ST7789  240×280    │  ← 信息 3 行, 各约 17px
+     *         │   LCD PWM 背光       │
+     *  y=256  │     System Ready     │  ← 状态 (底部上方)
+     *  y=280  └──────────────────────┘
      */
+
+    /* ---------- 1. 屏幕背景 ---------- */
     lv_obj_set_style_bg_color(screen,
                               lv_color_hex(0x1a237e),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -194,49 +203,56 @@ static void lvgl_create_ui(void)
                             LV_OPA_COVER,
                             LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    /* ---------- 2. 创建标题标签 ---------- */
+    /* ---------- 2. Zephyr Logo ---------- */
     /*
-     * [创建] lv_label_create() 在屏幕对象上创建文本标签
-     * lv_label_set_text() 设置标签显示的文本内容
-     * lv_obj_set_style_text_color() 设置文字颜色为白色
-     * lv_obj_align() 将标签对齐到屏幕顶部中间
+     * [位置] LV_ALIGN_TOP_MID, y=20
+     * 顶部留 20px 上边距，避免被圆角遮挡
+     */
+    logo_img = lv_image_create(screen);
+    lv_image_set_src(logo_img, &zephyr_200x116);
+    lv_obj_align(logo_img, LV_ALIGN_TOP_MID, 0, 20);
+
+    /* ---------- 3. 标题 ---------- */
+    /*
+     * [位置] LV_ALIGN_TOP_MID, y=150
+     * Logo 底部在 y=136，留 14px 间距 → 标题起始 y=150
      */
     title_label = lv_label_create(screen);
-    lv_label_set_text(title_label, "Zephyr LVGL");
+    lv_label_set_text(title_label, "Zephyr RTOS + LVGL");
     lv_obj_set_style_text_color(title_label,
                                 lv_color_hex(0xffffff),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-    /*
-     * [字体大小] lv_obj_set_style_text_font 设置字号
-     * &lv_font_montserrat_14 是 14 号 Montserrat 字体
-     * 这是在 prj.conf 中通过 CONFIG_LV_FONT_MONTSERRAT_14=y 启用的
-     */
     lv_obj_set_style_text_font(title_label,
                                &lv_font_montserrat_14,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 150);
 
-    /* ---------- 3. 创建信息标签 ---------- */
+    /* ---------- 4. 信息标签 (底部) ---------- */
+    /*
+     * [位置] LV_ALIGN_BOTTOM_MID, y=-65
+     * 从底部往上 65 像素，为状态标签留空间
+     */
     info_label = lv_label_create(screen);
     lv_label_set_text(info_label,
                       "ESP32-S3 DevKitC\n"
-                      "ST7789 240x280\n"
-                      "Zephyr RTOS + LVGL");
+                      "ST7789  240x280\n"
+                      "LCD PWM Backlight");
     lv_obj_set_style_text_color(info_label,
                                 lv_color_hex(0xb0bec5),
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(info_label,
                                &lv_font_montserrat_14,
                                LV_PART_MAIN | LV_STATE_DEFAULT);
-    /*
-     * [文本对齐] LV_TEXT_ALIGN_CENTER 让多行文本每行居中显示
-     */
     lv_obj_set_style_text_align(info_label,
                                 LV_TEXT_ALIGN_CENTER,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(info_label, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(info_label, LV_ALIGN_BOTTOM_MID, 0, -65);
 
-    /* ---------- 4. 创建状态标签 ---------- */
+    /* ---------- 5. 状态标签 ---------- */
+    /*
+     * [位置] LV_ALIGN_BOTTOM_MID, y=-15
+     * 底部上方 15px
+     */
     status_label = lv_label_create(screen);
     lv_label_set_text(status_label, "System Ready");
     lv_obj_set_style_text_color(status_label,
@@ -247,7 +263,7 @@ static void lvgl_create_ui(void)
                                LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -15);
 
-    LOG_INF("LVGL UI created successfully");
+    LOG_INF("LVGL UI with Zephyr logo created successfully");
 }
 
 /* ==================== 显示设备初始化函数 ==================== */

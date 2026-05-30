@@ -43,6 +43,7 @@ target_sources(app PRIVATE
     # src/bt_peripheral_thread.c
     src/bt_peripheral_nus_thread.c
     src/lcd_lvgl_thread.c
+    src/images/zephyr_200x116.c
 )
 
 # (可选) 链接所需的 Zephyr 库
