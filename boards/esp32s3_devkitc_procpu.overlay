@@ -5,6 +5,9 @@
 #include <zephyr/dt-bindings/pinctrl/esp32s3-pinctrl.h>
 #include <zephyr/dt-bindings/pinctrl/esp32s3-gpio-sigmap.h>
 #include <zephyr/dt-bindings/led/led.h>
+/* [LCD] 引入 MIPI DBI 和显示面板的 DT 常量定义 */
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/display/panel.h>
 
 /*
  * ESP32-S3 外部 32MB 八线 Flash (经典 Swap 模式) 分区表覆盖定义
@@ -113,10 +116,115 @@
         /* 核心：告诉 Zephyr 用哪个串口跑 Shell */
         zephyr,shell-uart = &uart1;
         zephyr,console = &uart1;
+        /* 核心：告诉 LVGL 用哪个显示设备 */
+        zephyr,display = &st7789v;
     };
 
     aliases {
         led-strip = &led_strip;
+    };
+
+    /*
+     * [LCD 显示] ST7789V SPI 显示屏 (240x280) 配置
+     * 通过 MIPI DBI SPI 框架驱动
+     *
+     * 硬件接线:
+     *   SCLK → GPIO12, MOSI → GPIO11, CS → GPIO10
+     *   DC   → GPIO8,  RST  → GPIO9
+     *   BLK  → GPIO4 (背光 PWM)
+     *   VCC  → 3.3V,   GND  → GND
+     *
+     * 注意事项:
+     *   - DC 引脚: 高电平=数据, 低电平=命令
+     *   - RST 引脚: 低电平复位 (GPIO_ACTIVE_LOW)
+     *   - write-only 表示只写不读，节省引脚和代码
+     *   - y-offset = 20: 因为 ST7789 内部 RAM 是 240x320,
+     *     240x280 的显示区域需要垂直偏移居中
+     */
+    mipi_dbi {
+        compatible = "zephyr,mipi-dbi-spi";
+        /*
+         * [SPI 总线] 使用 ESP32-S3 的 FSPI (SPI2)
+         * 默认引脚: CS=GPIO10, MOSI=GPIO11, SCLK=GPIO12
+         * 不需要 MISO (只写模式)
+         */
+        spi-dev = <&spi2>;
+        /*
+         * [DC 引脚] 数据/命令选择线
+         * gpio0 表示 GPIO 控制器 0 (管理 GPIO0~GPIO31)
+         * 8 表示 GPIO8
+         * GPIO_ACTIVE_HIGH: 高电平传输数据，低电平传输命令
+         */
+        dc-gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+        /*
+         * [RST 引脚] 硬件复位线
+         * GPIO_ACTIVE_LOW: 低电平触发复位，正常工作为高电平
+         */
+        reset-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+        /* [只写模式] ST7789 不需要读回像素数据，设为只写优化性能 */
+        write-only;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        /*
+         * [ST7789V 显示面板子节点]
+         * compatible = "sitronix,st7789v" 匹配 Zephyr 内置驱动
+         * reg = <0>: 使用 SPI CS0 (GPIO10)
+         */
+        st7789v: st7789v@0 {
+            compatible = "sitronix,st7789v";
+            reg = <0>;
+            /*
+             * [SPI 时钟] 20MHz
+             * ST7789 数据手册支持最高 62.5MHz (写周期)
+             * 使用 20MHz 是稳定可靠的选择，线太长可降至 10MHz
+             */
+            mipi-max-frequency = <20000000>;
+            /*
+             * [SPI 模式] 4 线模式:
+             *   - CS:  片选 (GPIO10)
+             *   - DC:  数据/命令 (GPIO8)
+             *   - SCLK: 时钟 (GPIO12)
+             *   - MOSI: 数据 (GPIO11)
+             * 3 线模式只用 3 根线 (DC 复用)，4 线更稳定
+             */
+            mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+            /* [分辨率] 240x280 像素 */
+            width = <240>;
+            height = <280>;
+            /* [水平偏移] 通常从 0 开始 */
+            x-offset = <0>;
+            /*
+             * [垂直偏移] ST7789 内部 GRAM 是 240x320
+             * 对于 240x280 的物理面板，显示区域通常需要偏移
+             * y-offset = (320 - 280) / 2 = 20 像素居中
+             * 如果画面上下有错位，请调整这个值
+             */
+            y-offset = <20>;
+            /*
+             * [像素格式] RGB565 (16 位色)
+             * R:5bit G:6bit B:5bit = 共 16 位 = 2 字节/像素
+             * 这是 ST7789 最常用的格式，也是 LVGL 默认格式
+             */
+            pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+            /* ===== 以下为 ST7789 初始化时序参数 ===== */
+            /* 这些参数来自 ST7789V 数据手册的推荐值 */
+            /* ===== 以下面板时序参数来自 Pandora 已验证配置 ===== */
+            vcom = <0x3F>;                    /* VCOM 电压 (pandora 值) */
+            gctrl = <0x05>;                   /* 门极控制 (pandora 值) */
+            vrhs = <0x0F>;                    /* VRH 设置 (pandora 值) */
+            vdvs = <0x20>;                    /* VDV 设置 */
+            mdac = <0x00>;                    /* MADCTL: 默认扫描方向 */
+            gamma = <0x01>;                   /* Gamma 曲线选择 */
+            lcm = <0x2c>;                     /* LCM 控制 */
+            porch-param = [0c 0c 00 33 33];   /* 前后廊参数 (5 字节) */
+            cmd2en-param = [5a 69 02 01];     /* Command2 使能参数 (4 字节) */
+            pwctrl1-param = [a4 a1];          /* 电源控制 1 (2 字节) */
+            pvgam-param = [D0 05 09 09 08 14 28 33 3F 07 13 14 28 30]; /* 正极性 Gamma (pandora 值) */
+            nvgam-param = [D0 05 09 09 08 03 24 32 32 3B 14 13 28 2F]; /* 负极性 Gamma (pandora 值) */
+            ram-param = [00 f0];              /* RAM 控制参数 (2 字节) */
+            rgb-param = [cd 08 14];           /* RGB 接口控制参数 (3 字节) */
+        };
     };
 
     // leds {
@@ -197,4 +305,18 @@ i2s_led: &i2s0 {
 
 &trng0 {
     status = "okay";
+};
+
+/*
+ * [SPI2] FSPI 总线 — 用于驱动 ST7789 LCD
+ * 使用默认引脚映射:
+ *   CS   = GPIO10 (FSPICS0)
+ *   MOSI = GPIO11 (FSPID)
+ *   SCLK = GPIO12 (FSPICLK)
+ *   MISO = GPIO13 (FSPIQ) — LCD 是只写的，这个引脚实际未使用
+ */
+&spi2 {
+    status = "okay";
+    pinctrl-0 = <&spim2_default>;
+    pinctrl-names = "default";
 };
