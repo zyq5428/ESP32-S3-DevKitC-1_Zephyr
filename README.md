@@ -63,6 +63,9 @@ west build -t menuconfig
 west build -t mcuboot_menuconfig
 # 烧录esp开发板，指定烧录串口
 west flash --esp-device COM15
+# 显式指定 --domain esp_app，这是多固件工程的主域
+# 在 sysbuild 联动机制下，它会以主应用为主导，同时将依赖的 MCUboot 一并安全地刷入芯片，且不会触发多域分发的实验性警告。
+west flash --domain esp_app --esp-device COM15
 # 监听esp开发板，指定对应串口
 west espressif monitor -p COM15
 # 指定flash大小烧录

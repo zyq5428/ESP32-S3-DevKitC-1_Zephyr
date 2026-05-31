@@ -118,6 +118,8 @@
         /* 核心：告诉 Zephyr 用哪个串口跑 Shell */
         zephyr,shell-uart = &uart1;
         zephyr,console = &uart1;
+        /* 明确指定主应用的代码存储分区！ */
+        zephyr,code-partition = &slot0_partition;
         /* 核心：告诉 LVGL 用哪个显示设备 */
         zephyr,display = &st7789v;
     };
@@ -217,12 +219,9 @@
              * 如果画面上下有错位，请调整这个值
              */
             y-offset = <20>;
-            /*
-             * [像素格式] RGB565 (16 位色)
-             * R:5bit G:6bit B:5bit = 共 16 位 = 2 字节/像素
-             * 这是 ST7789 最常用的格式，也是 LVGL 默认格式
-             */
+
             pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+
             /* ===== 以下为 ST7789 初始化时序参数 ===== */
             /* 这些参数来自 ST7789V 数据手册的推荐值 */
             /* ===== 以下面板时序参数来自 Pandora 已验证配置 ===== */
@@ -232,6 +231,7 @@
             vdvs = <0x20>;                    /* VDV 设置 */
             mdac = <0x00>;                    /* MADCTL: 默认扫描方向 */
             gamma = <0x01>;                   /* Gamma 曲线选择 */
+            // colmod = <0x05>;                  /* COLMOD: [像素格式] RGB565 (16 位色) */
             lcm = <0x2c>;                     /* LCM 控制 */
             porch-param = [0c 0c 00 33 33];   /* 前后廊参数 (5 字节) */
             cmd2en-param = [5a 69 02 01];     /* Command2 使能参数 (4 字节) */

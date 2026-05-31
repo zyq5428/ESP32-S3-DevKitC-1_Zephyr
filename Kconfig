@@ -1,0 +1,17 @@
+# ESP32-S3 DevKitC 应用级 Kconfig 入口
+#
+# 此文件作为 Zephyr Kconfig 的主入口点，在引入 Zephyr 官方配置后
+# 提供应用级的 Kconfig 选项覆盖。
+#
+# 注意：ESP32-S3 (Xtensa) 架构默认不选中 HAS_FLASH_LOAD_OFFSET，
+# 但 MCUboot 集成需要通过 USE_DT_CODE_PARTITION 来获取代码分区偏移。
+# 这里参考 Telink TLSR951X 的做法添加默认值。
+
+source "Kconfig.zephyr"
+
+# 工作区修复：Xtensa (ESP32-S3) 架构缺少 HAS_FLASH_LOAD_OFFSET
+# 当启用 MCUboot 时，BOOTLOADER_MCUBOOT 会 select USE_DT_CODE_PARTITION，
+# 但 USE_DT_CODE_PARTITION 定义在 if HAS_FLASH_LOAD_OFFSET 条件块中。
+# 此默认值确保 MCUboot 模式下 HAS_FLASH_LOAD_OFFSET 自动为 y。
+config HAS_FLASH_LOAD_OFFSET
+	default y if BOOTLOADER_MCUBOOT

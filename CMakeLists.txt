@@ -44,20 +44,20 @@ target_sources(app PRIVATE
     src/bt_peripheral_nus_thread.c
     src/lcd_lvgl_thread.c
     src/images/zephyr_200x116.c
-    src/lvgl_benchmark_thread.c        # [可选] LVGL 官方性能测试 (需同时启用 prj.conf 中的 CONFIG_LV_USE_DEMO_BENCHMARK)
+    # src/lvgl_benchmark_thread.c        # [可选] LVGL 官方性能测试 (需同时启用 prj.conf 中的 CONFIG_LV_USE_DEMO_BENCHMARK)
 )
 
 # [可选] LVGL Benchmark 依赖: 收集上游 LVGL 仓库中的 demo 源文件
 # Zephyr 的 LVGL 模块只编译核心库, demo 的 .c 文件需要手动加入
 # CONFIG_LV_USE_DEMO_BENCHMARK 依赖 CONFIG_LV_USE_DEMO_WIDGETS
-file(GLOB_RECURSE LVGL_DEMO_SOURCES
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/lv_demos.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/benchmark/*.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/benchmark/assets/*.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/*.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/*.c
-)
-target_sources(app PRIVATE ${LVGL_DEMO_SOURCES})
+# file(GLOB_RECURSE LVGL_DEMO_SOURCES
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/lv_demos.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/benchmark/*.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/benchmark/assets/*.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/*.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/*.c
+# )
+# target_sources(app PRIVATE ${LVGL_DEMO_SOURCES})
 
 # (可选) 链接所需的 Zephyr 库
 # 正确的链接方式：只需要链接到 'zephyr' 目标
