@@ -43,6 +43,7 @@
 
 /* ==================== LVGL 头文件 ==================== */
 #include <lvgl.h>                   /* [LVGL] lv_* 图形库 API */
+#include "../demos/lv_demos.h"     /* [LVGL Demo] lv_demo_widgets() 等官方 Demo 入口 */
 
 /* ==================== 项目头文件 ==================== */
 #include "lcd_lvgl_thread.h"        /* [头文件] 全局变量声明 */
@@ -160,15 +161,16 @@ static void lcd_backlight_set(uint8_t brightness)
 /* ==================== LVGL 界面构建函数 ==================== */
 
 /*
- * [函数] 创建 LVGL 主界面
+ * [函数] 创建开发板信息界面 (启动时展示 5 秒)
  *
  * 界面布局 (从外到内):
  *   1. 屏幕背景 — 深蓝色 (体现 Zephyr 品牌色)
- *   2. 标题标签 — "Zephyr LVGL" (顶部居中)
- *   3. 信息标签 — "ESP32-S3 + ST7789" (中部)
- *   4. 状态标签 — 显示系统运行时间 (底部)
+ *   2. Zephyr Logo 图像 — 200x116 像素
+ *   3. 标题标签 — "Zephyr RTOS + LVGL" (顶部居中)
+ *   4. 信息标签 — "ESP32-S3 DevKitC / ST7789 / LCD PWM Backlight" (中部)
+ *   5. 状态标签 — "System Ready" (底部, 绿色)
  */
-static void lvgl_create_ui(void)
+static void lvgl_create_info_screen(void)
 {
     lv_obj_t *logo_img;       /* [LVGL 对象] Zephyr Logo 图像 */
     lv_obj_t *title_label;    /* [LVGL 对象] 标题标签 */
@@ -264,6 +266,36 @@ static void lvgl_create_ui(void)
     lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -15);
 
     LOG_INF("LVGL UI with Zephyr logo created successfully");
+}
+
+/* ==================== LVGL 界面清理函数 ==================== */
+
+/*
+ * [函数] 清除当前屏幕上的所有 LVGL 对象
+ *
+ * 在切换到 Widgets Demo 之前调用，释放之前的信息界面占用的内存。
+ * lv_obj_clean() 递归删除屏幕上的所有子对象 (标签、图像、背景等)，
+ * 但保留屏幕对象本身 (方便 Demo 直接在上面绘制)。
+ *
+ * 为什么要清除:
+ *   1. 旧 Logo 占 ~46KB 像素数据仍驻留 PSRAM → 内存浪费
+ *   2. 新旧 UI 叠加 → 视觉混乱不可控
+ *   3. lv_demo_widgets() 需要干净的屏幕起跑线
+ */
+static void lvgl_clear_screen(void)
+{
+    lv_obj_t *screen = lv_screen_active();  /* [获取] 当前活动屏幕对象 */
+
+    lv_obj_clean(screen);                    /* [删除] 递归删除所有子对象 */
+
+    /* [背景重置] 子对象删除后背景可能残留, 重置为纯黑色 */
+    lv_obj_set_style_bg_color(screen,
+                              lv_color_hex(0x000000),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(screen,
+                            LV_OPA_COVER,
+                            LV_PART_MAIN | LV_STATE_DEFAULT);
+    LOG_INF("Screen cleared, ready for Widgets Demo");
 }
 
 /* ==================== 显示设备初始化函数 ==================== */
@@ -383,37 +415,66 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
     g_lvgl_ready = true; /* [标志] 通知其他线程 LVGL 已就绪 */
     LOG_INF("LVGL initialized and ready");
 
-    /* ---------- 步骤 4: 构建用户界面 ---------- */
-    lvgl_create_ui();
-    LOG_INF("UI created, entering main loop...");
+    /* ---------- 步骤 4: 构建开发板信息界面 ---------- */
+    lvgl_create_info_screen();
+    LOG_INF("Dev board info screen created");
 
-    /* ---------- 步骤 5: 主循环 — LVGL 由专用工作队列驱动 ---------- */
+    /* ---------- 步骤 5: 展示信息界面 (5 秒) ---------- */
     /*
-     * [架构说明] CONFIG_LV_Z_RUN_LVGL_ON_WORKQUEUE=y 已启用
-     * LVGL 的 lv_timer_handler() 现在由 Zephyr 自动创建的
-     * 高优先级工作队列线程 (优先级 5) 周期性调用。
+     * [产品展示] 上电后首先看到的是开发板信息:
+     *   - Zephyr Logo (200x116 像素)
+     *   - "Zephyr RTOS + LVGL" 标题
+     *   - "ESP32-S3 DevKitC / ST7789 240x280" 规格
+     *   - "System Ready" 绿色状态指示
+     * 给用户 5 秒时间看清系统信息, 然后自动切换 Demo。
+     */
+    LOG_INF("Showing dev board info for 5 seconds...");
+    k_sleep(K_SECONDS(5));
+
+    /* ---------- 步骤 6: 启动 LVGL Widgets Demo ---------- */
+    /*
+     * [Demo 切换] 清除信息界面 → 启动官方 Widgets Demo
      *
-     * 我们的线程不再需要调用 lv_timer_handler() —
-     * LVGL 渲染在后台独立运行, 互不阻塞。
+     * lv_demo_widgets() 工作原理:
+     *   1. 标记为 LV_DEMO_TYPE_FULL (全屏独占 Demo)
+     *   2. 创建 4 个 Tab 页面: Shop(商店), Analytics(分析),
+     *      Profile(个人资料), Components(控件展示)
+     *   3. 启动 8 秒间隔的自动幻灯片切换定时器
+     *   4. 每 2 秒随机改变主题颜色
+     *   5. 返回后由 LVGL 工作队列周期性调用 lv_timer_handler() 驱动渲染
      *
-     * 本线程职责:
-     *   1. 初始化显示硬件和 LVGL 界面 (已完成)
-     *   2. 空闲循环: 休眠等待, 定期输出心跳日志
-     *   3. (未来) 可在此处理 UI 动态更新, 如切换页面/刷新数据
+     * 关于 240x280 小屏幕:
+     *   - LVGL 9 内置 DPI 感知, 控件和文字会自动缩放
+     *   - Tab 标签栏在窄屏上可能较挤, 但 4 个 Tab 均可点击
+     *   - Widgets Demo 原始设计为 480x272, 在 240x280 上会等比缩小
+     *
+     * DMA 加速效果:
+     *   SPI2 GDMA 通道 1(TX) 自动搬运 LVGL VDB(PSRAM) 到 ST7789V
+     *   CPU 在每帧 134KB 传输期间可处理 BLE/按键等其他任务
+     */
+    LOG_INF("Launching LVGL Widgets Demo...");
+    lvgl_clear_screen();
+    lv_demo_widgets();
+    LOG_INF("Widgets Demo launched! Slideshow auto-advances every 8 seconds.");
+    LOG_INF("Tabs: Shop | Analytics | Profile | Components");
+
+    /* ---------- 步骤 7: 空闲循环 — UI 由 LVGL 工作队列驱动 ---------- */
+    /*
+     * [架构说明] lv_demo_widgets() 返回后:
+     *   - 屏幕已填充完整的 Widgets Demo 控件树
+     *   - 自动幻灯片定时器已创建 (每 8 秒切换到下一个 Tab)
+     *   - 屏幕刷新由 CONFIG_LV_Z_FLUSH_THREAD 独立线程驱动
+     *   - lv_timer_handler() 由 LVGL 工作队列 (优先级 5) 周期性调用
+     *   - SPI DMA (GDMA) 自动搬运帧缓冲到 ST7789V, CPU 空闲
+     *
+     * 本线程进入低功耗监控模式:
+     *   每 30 秒输出心跳日志确认存活,
+     *   未来可在此添加 Shell 命令切换 Demo、亮度调节等交互。
      */
     while (1) {
-        /*
-         * [休眠] 长时间休眠, 让出 CPU 给 LVGL 工作队列和其他线程
-         * 不需要频繁唤醒 — UI 刷新由 LVGL 工作队列独立处理
-         */
         k_sleep(K_SECONDS(30));
-
-        /*
-         * [心跳] 每 30 秒打印一次, 确认线程存活
-         * 避免频繁日志刷屏, 方便长期运行调试
-         */
         loop_count++;
-        LOG_DBG("Display thread alive (%u min elapsed)", loop_count / 2);
+        LOG_DBG("Display thread alive (%u min), demo running", loop_count / 2);
     }
 }
 
