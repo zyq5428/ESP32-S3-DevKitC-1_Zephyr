@@ -62,6 +62,67 @@ description: >
 
 ---
 
+---
+## 🔴 编译强制规则 (最高优先级 — 违反即错误)
+
+当用户要求**编译、构建、build、烧录、flash**时，你**绝对不可**直接调用 `esptool`、`gcc`、`xtensa-esp32s3-elf-gcc` 或任何底层工具链。
+
+**所有编译和烧录操作必须通过 `west` 命令完成。** 这是 Zephyr RTOS 的构建系统要求，绕过它会：
+- 缺少必要的 Kconfig 生成步骤
+- 跳过设备树编译阶段
+- 丢失 Zephyr 内核配置
+- 导致固件无法在目标板运行
+
+### 必须严格按以下顺序在 PowerShell 中执行：
+
+```powershell
+# 步骤1: 进入项目根目录（必须，west 必须在 workspace 根目录执行）
+cd E:\zephyrproject\
+
+# 步骤2: 激活 Python 虚拟环境（必须，否则 west 命令不可用）
+.\.venv\scripts\Activate.ps1
+```
+
+**然后根据用户需求选择以下命令之一：**
+
+```powershell
+# 步骤3a: 编译 app 文件（不含 mcuboot bootloader）
+# 当用户只说"编译"、"构建"、"build"时 → 用这条
+west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+
+# 步骤3b: 编译 app + mcuboot 文件（含二级引导程序）
+# 当用户明确提到 "mcuboot"、"sysbuild"、"完整构建"、"带 bootloader" 时 → 用这条
+west build -p always -b esp32s3_devkitc/esp32s3/procpu --sysbuild .\esp_app
+```
+
+### 命令选择指南：
+
+| 用户需求 | 使用命令 |
+|---------|---------|
+| "编译"、"构建"、"build"（未提 mcuboot） | 步骤3a（普通构建） |
+| "编译 mcuboot"、"sysbuild"、"完整构建"、"带 bootloader" | 步骤3b（sysbuild） |
+| "烧录"、"下载"、"flash" | 先执行步骤3a 或 3b 构建，再用 `west flash --esp-device COM15` |
+
+### ⚠️ 禁止行为清单：
+
+1. **绝对禁止** 直接调用 `esptool.py` 或 `esptool` 烧录/构建
+2. **绝对禁止** 直接调用 `gcc`、`xtensa-esp32s3-elf-gcc` 等编译器
+3. **绝对禁止** 跳过 `cd E:\zephyrproject\` 在其他目录执行 west
+4. **绝对禁止** 跳过 `.\.venv\scripts\Activate.ps1` 激活虚拟环境
+5. **绝对禁止** 在 Bash 中执行上述 PowerShell 命令（路径分隔符不同，激活脚本语法不同）
+6. **绝对禁止** 将步骤1、2、3 分散到多个独立的 Bash 调用中 —— 每次 `west build` 执行前都必须先 cd 并激活 venv
+
+### 🔧 正确的一次性执行方式：
+
+当你需要编译时，使用 `&&` 将步骤合并为一条命令：
+
+```powershell
+cd E:\zephyrproject\ && .\.venv\scripts\Activate.ps1 && west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+```
+
+> 📖 更多构建和烧录细节请读取: `references/build-and-flash.md`
+
+---
 ## 工作流程
 
 ### 1. 创建项目时
@@ -109,36 +170,31 @@ description: >
 
 ### 4. 构建与烧录时
 
-要在命令行编译和烧录Zephyr应用，需要提前激活 Zephyr 环境：
+> ⚠️ **在阅读本节之前，请先遵守上方「🔴 编译强制规则」中的要求。本节提供补充细节。**
 
-```bash
+每次编译/烧录前，必须先在 PowerShell 中依次执行：
+
+```powershell
 # 进入项目根目录
-cd E:/zephyrproject
+cd E:\zephyrproject\
 
-# 激活 Python 虚拟环境 (如果使用了 .venv)
+# 激活 Python 虚拟环境
 .\.venv\scripts\Activate.ps1
 ```
 
-常用的 `west` 命令，对于ESP开发板，最好直接指定烧录的串口号 (命令中的PORT) ，当前开发板连接的烧录串口是COM15， 当烧录发现串口号错误时，可以从应用程序的README.md找一找，或者问用户是哪个串口，如果发现烧录失败，可能是开发板自动烧录的功能偶尔不灵，要提醒用户手动操作一下：
+当前开发板连接的烧录串口是 **COM15**。当烧录发现串口号错误时，可以从应用程序的 README.md 查找，或者询问用户。如果烧录失败，可能是开发板自动烧录功能偶尔失灵，要提醒用户手动操作。
 
-```bash
-# 构建项目 (首次或配置变更后)
-west build -p always -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+**烧录和监控命令（构建完成后使用）：**
 
-# 仅构建 (代码变更后)
-west build -p auto -b esp32s3_devkitc/esp32s3/procpu .\esp_app
+```powershell
+# 烧录 esp 开发板，指定烧录串口
+west flash --esp-device COM15
 
-# 同时编译mcuboot和app
-west build -p always -b esp32s3_devkitc/esp32s3/procpu --sysbuild .\esp_app
-
-# 烧录esp开发板，指定烧录串口
-west flash --esp-device PORT
-
-# 监听esp开发板，指定对应串口
-west espressif monitor -p PORT
+# 监听 esp 开发板，指定对应串口
+west espressif monitor -p COM15
 
 # 烧录完成后立即启动监视器
-west flash --esp-device PORT ; west espressif monitor -p PORT
+west flash --esp-device COM15 ; west espressif monitor -p COM15
 
 # 清理构建
 west build -t clean
@@ -241,16 +297,18 @@ static const struct device *const gpio0_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0))
 - **WiFi、无线、联网、网络** → 输出 Wi-Fi 完整示例
 - **蓝牙、BLE** → 输出 BLE 完整示例
 - **设备树、overlay、DTS、pinctrl、引脚配置** → 加载 devicetree-guide.md
-- **构建、编译、烧录、下载、flash、build** → 加载 build-and-flash.md
+- **构建、编译、烧录、下载、flash、build** → 必须先执行「🔴 编译强制规则」中的步骤1→2→3，然后加载 build-and-flash.md
 - **报错、错误、问题、不工作** → 加载 troubleshooting 并对照硬件约束分析
 
 ---
 
 ## 强制规则
 
-1. **代码绝对完整** — 任何 `// ...` 或省略号都是不可接受的，会直接导致用户无法编译
-2. **逐行中文注释** — 用户是新手，注释必须解释"为什么"而不只是"是什么"
-3. **设备树优先** — 永远不要教用户写 `gpio_pin_configure(gpio0, 38, ...)` 这种硬编码，正确做法是通过设备树节点
-4. **避开禁用引脚** — 任何涉及 GPIO35/36/37 的代码都要发出警告并给出替代方案
-5. **使用板子 overlay** — 不要修改 Zephyr 源码中的板级文件，始终使用应用级 `.overlay`
-6. **编译前检查** — 输出代码后，提醒用户确认板子型号和 overlay 配置
+1. **🔴 编译必须用 west** — 绝对禁止直接调用 `esptool`、`gcc` 或任何底层工具链。必须严格执行「🔴 编译强制规则」中的步骤1→2→3顺序
+2. **代码绝对完整** — 任何 `// ...` 或省略号都是不可接受的，会直接导致用户无法编译
+3. **逐行中文注释** — 用户是新手，注释必须解释"为什么"而不只是"是什么"
+4. **设备树优先** — 永远不要教用户写 `gpio_pin_configure(gpio0, 38, ...)` 这种硬编码，正确做法是通过设备树节点
+5. **避开禁用引脚** — 任何涉及 GPIO35/36/37 的代码都要发出警告并给出替代方案
+6. **使用板子 overlay** — 不要修改 Zephyr 源码中的板级文件，始终使用应用级 `.overlay`
+7. **编译前检查** — 输出代码后，提醒用户确认板子型号和 overlay 配置
+8. **禁止修改官方文件** — 禁止对官方的bootloader、modules、tools、Zephyr等源码进行修改，始终使用应用级配置
