@@ -155,10 +155,15 @@ volatile bool g_wifi_connected = false;
 /* [网络状态] 当前设备的 IPv4 地址字符串 */
 volatile char g_wifi_ip_addr[16] = "0.0.0.0";
 
+/* [RTC 基准] SNTP 同步瞬间的北京时间 Unix 戳 + 系统 uptime */
+volatile uint64_t g_rtc_base_unix   = 0;   /* Unix 时间 (UTC+8) */
+volatile uint64_t g_rtc_base_uptime = 0;   /* k_uptime_get() 值 (ms) */
+volatile bool g_rtc_synced = false;        /* RTC 基准是否有效 */
+
 /* [时间状态] 是否已通过 SNTP 同步过时间 */
 volatile bool g_time_synced = false;
 
-/* [时间数据] 当前北京时间 */
+/* [时间数据] 当前北京时间 (由 LVGL 1Hz 回调从 RTC 基准实时推算) */
 volatile int g_current_hour   = 0;
 volatile int g_current_minute = 0;
 volatile int g_current_second = 0;
@@ -587,9 +592,20 @@ static int sync_time_via_sntp(void)
     g_current_second = second;
     g_time_synced    = true;
 
+    /*
+     * [RTC 基准] 保存 SNTP 同步瞬间的 Unix 时间 + 系统 uptime
+     *
+     * 之后通过 "beijing_unix_time + (k_uptime_get() - g_rtc_base_uptime)/1000"
+     * 即可实时推算当前北京时间，精度由硬件定时器保证 (ms 级)。
+     * 避免软件手动累加秒数导致的累积漂移。
+     */
+    g_rtc_base_unix   = beijing_unix_time;
+    g_rtc_base_uptime = k_uptime_get();
+    g_rtc_synced      = true;
+
     /* [日志] 使用局部变量避免 volatile 警告 */
     int wday = g_current_weekday;
-    LOG_INF("时间同步成功! 北京时间: %04d-%02d-%02d %02d:%02d:%02d (星期%d)",
+    LOG_INF("时间同步成功! 北京时间: %04d-%02d-%02d %02d:%02d:%02d (星期%d) | RTC 基准已建立",
             year, month, day, hour, minute, second, wday);
 
     return 0;
@@ -1146,27 +1162,11 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
             }
 
             /*
-             * [时间推进] SNTP 只同步一次基准时间，之后每 30 秒手动推进
-             * 注意: 嵌入式 RTC 精度有限，长时间运行可能有漂移
-             *       建议每天至少 SNTP 同步一次来校准
+             * [RTC 时间] 不再需要手动推进秒数。
+             * 时间由 LVGL 1Hz 回调通过 RTC 基准实时计算:
+             *   now = g_rtc_base_unix + (k_uptime_get() - g_rtc_base_uptime) / 1000
+             * 硬件定时器保证精度，无累积漂移。
              */
-            if (time_sync_done) {
-                g_current_second += HEARTBEAT_INTERVAL_S;
-                /* [进位] 秒→分→时→日 */
-                while (g_current_second >= 60) {
-                    g_current_second -= 60;
-                    g_current_minute++;
-                }
-                while (g_current_minute >= 60) {
-                    g_current_minute -= 60;
-                    g_current_hour++;
-                }
-                while (g_current_hour >= 24) {
-                    g_current_hour -= 24;
-                    g_current_day++;
-                    g_current_weekday = (g_current_weekday + 1) % 7;
-                }
-            }
         }
 
         /*

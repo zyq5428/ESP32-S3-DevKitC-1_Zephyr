@@ -27,12 +27,24 @@ extern volatile bool g_wifi_connected;
 /* [WiFi IP 地址字符串] 点分十进制格式，如 "192.168.1.100" */
 extern volatile char g_wifi_ip_addr[16];
 
-/* ==================== 时间同步变量 ==================== */
+/* ==================== RTC 实时时钟 (硬件定时器驱动) ==================== */
+
+/* [RTC 基准] SNTP 同步时的 Unix 时间戳 (北京时间 UTC+8) */
+extern volatile uint64_t g_rtc_base_unix;
+
+/* [RTC 基准] SNTP 同步时的系统 uptime (毫秒) */
+extern volatile uint64_t g_rtc_base_uptime;
+
+/* [RTC 同步标志] true=已建立 RTC 时间基准 */
+extern volatile bool g_rtc_synced;
+
+/* ==================== 时间同步变量 (兼容旧接口) ==================== */
 
 /* [时间同步标志] true=已通过 SNTP 成功获取网络时间 */
 extern volatile bool g_time_synced;
 
-/* [当前时间] 时:分:秒 (北京时间 UTC+8) */
+/* [当前时间] 时:分:秒 (北京时间 UTC+8)
+ * 注意: 启用 RTC 后这些值由 LVGL 1Hz 回调实时计算 */
 extern volatile int g_current_hour;
 extern volatile int g_current_minute;
 extern volatile int g_current_second;
