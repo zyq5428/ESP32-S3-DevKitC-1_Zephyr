@@ -170,293 +170,289 @@ static void lvgl_draw_boot_ui(void)
  * 只使用 montserrat 12/14 (已验证可正常渲染)。
  */
 
-/* ==================== 赛博朋克配色常量 ==================== */
-#define CYBER_CYAN    lv_color_hex(0x00f0ff)
-#define CYBER_MAGENTA lv_color_hex(0xff00ff)
-#define CYBER_YELLOW  lv_color_hex(0xffff00)
-#define CYBER_GREEN   lv_color_hex(0x00ff41)
-#define CYBER_ORANGE  lv_color_hex(0xff6600)
-#define CYBER_RED     lv_color_hex(0xff0040)
-#define CYBER_DIM     lv_color_hex(0x3a3a5e)
-
-/*
- * [函数] WMO 天气代码 → 简短英文描述
- * Montserrat 字体不含中文字形，中文天气描述在 LCD 上会显示为方块。
- * 因此 LCD 用英文显示天气，串口日志保留中文。
- */
-static const char *wmo_to_en(int code)
-{
-    switch (code) {
-    case 0:     return "Clear";
-    case 1:     return "P.Cloudy";
-    case 2:     return "Cloudy";
-    case 3:     return "Overcast";
-    case 45:
-    case 48:    return "Fog";
-    case 51:
-    case 53:
-    case 55:    return "Drizzle";
-    case 61:
-    case 63:
-    case 65:    return "Rain";
-    case 71:
-    case 73:
-    case 75:    return "Snow";
-    case 80:
-    case 81:
-    case 82:    return "Showers";
-    case 95:
-    case 96:
-    case 99:    return "Thunder";
-    default:    return "?";
-    }
-}
+/* ==================== 赛博朋克配色 (16位 RGB565) ==================== */
+#define CYBER_BG      lv_color_make(10, 10, 15)     /* 暗夜蓝黑背景 */
+#define CYBER_CYAN    lv_color_make(0, 255, 240)    /* 霓虹青 — 时间/WiFi */
+#define CYBER_PINK    lv_color_make(255, 0, 128)    /* 霓虹粉 — 日期/云 */
+#define CYBER_YELLOW  lv_color_make(255, 230, 0)    /* 警示黄 — 温度 */
+#define CYBER_GREEN   lv_color_make(0, 255, 120)    /* 荧光绿 — 状态栏 */
+#define CYBER_DIM     lv_color_make(20, 40, 60)     /* 暗蓝微光 — 电路线 */
+#define CYBER_WHITE   lv_color_make(200, 200, 210)  /* 灰白 — 次要文字 */
+#define CYBER_RED     lv_color_make(255, 50, 50)    /* 霓虹红 — 断开 */
 
 /* ==================== 动态控件指针 (每秒刷新) ==================== */
 static lv_obj_t *cy_time_label     = NULL;
 static lv_obj_t *cy_date_label     = NULL;
 static lv_obj_t *cy_temp_label     = NULL;
-static lv_obj_t *cy_weather_label  = NULL;
-static lv_obj_t *cy_wind_label     = NULL;
 static lv_obj_t *cy_wifi_label     = NULL;
-static lv_obj_t *cy_status_label   = NULL;
-static lv_obj_t *cy_deco_a         = NULL;
-static lv_obj_t *cy_deco_b         = NULL;
+static lv_obj_t *cy_sync_label     = NULL;
+static lv_obj_t *cy_therm_liquid   = NULL;  /* 温度计液柱 */
 
-/*
- * [函数] Unix 时间戳 → 年/月/日/时/分/秒/星期 (北京时间 UTC+8)
- *
- * 纯手写算法，不依赖 libc gmtime()（嵌入式 picolibc 可能不支持）。
- * 与 wifi_weather_thread.c 中 SNTP 同步的转换算法一致。
- */
+/* ==================== RTC → 日历转换 ==================== */
 static void unix_to_calendar(uint64_t unix_time,
                              int *y, int *mo, int *d,
                              int *h, int *mi, int *s, int *wd)
 {
     uint64_t ts = unix_time;
-    uint32_t total_days, remaining_days;
-    int year = 1970, month = 1, day = 1;
-    int days_in_month;
+    uint32_t total_days, rem;
+    int year = 1970, month = 1, day = 1, dim;
 
-    /* 时/分/秒 */
     *s  = (int)(ts % 60); ts /= 60;
     *mi = (int)(ts % 60); ts /= 60;
     *h  = (int)(ts % 24);
     total_days = (uint32_t)(ts / 24);
 
-    /* 年 */
-    remaining_days = total_days;
+    rem = total_days;
     while (1) {
-        int leap = ((year % 4 == 0) && (year % 100 != 0))
-                   || (year % 400 == 0);
-        uint32_t dy = leap ? 366 : 365;
-        if (remaining_days < dy) break;
-        remaining_days -= dy;
-        year++;
+        int lp = ((year%4==0)&&(year%100!=0))||(year%400==0);
+        if (rem < (uint32_t)(lp?366:365)) break;
+        rem -= (lp ? 366 : 365); year++;
     }
     *y = year;
-
-    /* 月 */
     for (month = 1; month <= 12; month++) {
-        switch (month) {
-        case 1:  days_in_month = 31; break;
-        case 2: {
-            int leap = ((year % 4 == 0) && (year % 100 != 0))
-                       || (year % 400 == 0);
-            days_in_month = leap ? 29 : 28;
-            break;
-        }
-        case 3:  days_in_month = 31; break;
-        case 4:  days_in_month = 30; break;
-        case 5:  days_in_month = 31; break;
-        case 6:  days_in_month = 30; break;
-        case 7:  days_in_month = 31; break;
-        case 8:  days_in_month = 31; break;
-        case 9:  days_in_month = 30; break;
-        case 10: days_in_month = 31; break;
-        case 11: days_in_month = 30; break;
-        case 12: days_in_month = 31; break;
-        default: days_in_month = 30; break;
-        }
-        if (remaining_days < (uint32_t)days_in_month) {
-            day = (int)(remaining_days + 1);
-            break;
-        }
-        remaining_days -= (uint32_t)days_in_month;
+        if (month==1) dim=31; else if (month==2) {
+            int lp = ((year%4==0)&&(year%100!=0))||(year%400==0);
+            dim = lp?29:28;
+        } else if (month==3) dim=31; else if (month==4) dim=30;
+        else if (month==5) dim=31; else if (month==6) dim=30;
+        else if (month==7) dim=31; else if (month==8) dim=31;
+        else if (month==9) dim=30; else if (month==10) dim=31;
+        else if (month==11) dim=30; else dim=31;
+        if (rem < (uint32_t)dim) { day = (int)(rem+1); break; }
+        rem -= (uint32_t)dim;
     }
-    *mo = month;
-    *d  = day;
-
-    /* 星期 (Sakamoto) */
-    int yw = year, mw = month;
-    if (mw < 3) { mw += 12; yw -= 1; }
-    *wd = (day + 2*mw + (3*(mw+1))/5 + yw + yw/4 - yw/100 + yw/400 + 1) % 7;
+    *mo = month; *d = day;
+    int yw=year, mw=month;
+    if (mw<3) { mw+=12; yw-=1; }
+    *wd = (day+2*mw+(3*(mw+1))/5+yw+yw/4-yw/100+yw/400+1)%7;
 }
 
-/*
- * [回调] LVGL 定时器 — 每秒刷新赛博朋克时钟 (RTC 硬件定时器驱动)
- */
+/* ==================== 电路板背景线 ==================== */
+static void draw_circuit_bg(void)
+{
+    static lv_point_precise_t l1[] = { {0,40}, {30,40}, {60,10}, {100,10} };
+    lv_obj_t *line1 = lv_line_create(app_screen);
+    lv_line_set_points(line1, l1, 4);
+    lv_obj_set_style_line_color(line1, CYBER_DIM, LV_PART_MAIN);
+    lv_obj_set_style_line_width(line1, 2, LV_PART_MAIN);
+
+    static lv_point_precise_t l2[] = { {220,0}, {220,100}, {190,130}, {190,200} };
+    lv_obj_t *line2 = lv_line_create(app_screen);
+    lv_line_set_points(line2, l2, 4);
+    lv_obj_set_style_line_color(line2, CYBER_DIM, LV_PART_MAIN);
+    lv_obj_set_style_line_width(line2, 2, LV_PART_MAIN);
+
+    static lv_point_precise_t l3[] = { {5,120}, {50,120}, {70,100} };
+    lv_obj_t *line3 = lv_line_create(app_screen);
+    lv_line_set_points(line3, l3, 3);
+    lv_obj_set_style_line_color(line3, CYBER_DIM, LV_PART_MAIN);
+    lv_obj_set_style_line_width(line3, 1, LV_PART_MAIN);
+}
+
+/* ==================== 霓虹温度计 ==================== */
+static lv_obj_t *create_thermometer(void)
+{
+    lv_obj_t *c = lv_obj_create(app_screen);
+    lv_obj_set_size(c, 30, 55);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(c, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(c, 0, LV_PART_MAIN);
+
+    /* 玻璃管 */
+    lv_obj_t *tube = lv_obj_create(c);
+    lv_obj_set_size(tube, 8, 35);
+    lv_obj_align(tube, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(tube, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_color(tube, lv_color_make(150,150,150), LV_PART_MAIN);
+    lv_obj_set_style_border_width(tube, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(tube, 4, LV_PART_MAIN);
+
+    /* 液柱 (高度随温度动态调整) */
+    cy_therm_liquid = lv_obj_create(c);
+    lv_obj_set_size(cy_therm_liquid, 4, 10);
+    lv_obj_align(cy_therm_liquid, LV_ALIGN_TOP_MID, 0, 22);
+    lv_obj_set_style_bg_color(cy_therm_liquid, CYBER_YELLOW, LV_PART_MAIN);
+    lv_obj_set_style_border_width(cy_therm_liquid, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(cy_therm_liquid, 2, LV_PART_MAIN);
+
+    /* 感温泡 */
+    lv_obj_t *bulb = lv_obj_create(c);
+    lv_obj_set_size(bulb, 16, 16);
+    lv_obj_align(bulb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(bulb, CYBER_YELLOW, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bulb, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(bulb, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+
+    return c;
+}
+
+/* ==================== 霓虹云图标 ==================== */
+static lv_obj_t *create_cloud_icon(void)
+{
+    lv_obj_t *c = lv_obj_create(app_screen);
+    lv_obj_set_size(c, 70, 55);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(c, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(c, 0, LV_PART_MAIN);
+
+    lv_obj_t *a1 = lv_arc_create(c);
+    lv_obj_set_size(a1, 30, 30);
+    lv_arc_set_angles(a1, 135, 360);
+    lv_obj_align(a1, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_set_style_arc_color(a1, CYBER_PINK, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(a1, 3, LV_PART_MAIN);
+    lv_obj_set_style_opa(a1, LV_OPA_TRANSP, LV_PART_KNOB);
+
+    lv_obj_t *a2 = lv_arc_create(c);
+    lv_obj_set_size(a2, 35, 35);
+    lv_arc_set_angles(a2, 180, 45);
+    lv_obj_align(a2, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_style_arc_color(a2, CYBER_PINK, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(a2, 3, LV_PART_MAIN);
+    lv_obj_set_style_opa(a2, LV_OPA_TRANSP, LV_PART_KNOB);
+
+    /* 雨滴 */
+    static lv_point_precise_t dp[] = { {0,0}, {5,10} };
+    lv_obj_t *d1 = lv_line_create(c);
+    lv_line_set_points(d1, dp, 2);
+    lv_obj_set_style_line_color(d1, CYBER_PINK, LV_PART_MAIN);
+    lv_obj_set_style_line_width(d1, 3, LV_PART_MAIN);
+    lv_obj_align(d1, LV_ALIGN_BOTTOM_MID, -12, 8);
+
+    lv_obj_t *d2 = lv_line_create(c);
+    lv_line_set_points(d2, dp, 2);
+    lv_obj_set_style_line_color(d2, CYBER_PINK, LV_PART_MAIN);
+    lv_obj_set_style_line_width(d2, 3, LV_PART_MAIN);
+    lv_obj_align(d2, LV_ALIGN_BOTTOM_MID, 8, 8);
+
+    return c;
+}
+
+/* ==================== 1Hz 刷新回调 ==================== */
 static void cyberpunk_clock_update(lv_timer_t *timer)
 {
-    char buf[48];
+    char buf[32];
     const char *wd_str[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
     int y, mo, d, h, mi, s, wd;
 
-    /*
-     * [RTC 时间计算] 从 SNTP 同步基准 + 硬件定时器差值推算当前时间
-     *
-     * g_rtc_base_unix:   SNTP 同步时的北京时间 Unix 戳
-     * g_rtc_base_uptime: 同步时的 k_uptime_get() 值 (毫秒)
-     * k_uptime_get():    当前系统 uptime (硬件定时器驱动, 毫秒级精度)
-     *
-     * 公式: now = base_unix + (current_uptime - base_uptime) / 1000
-     * 硬件定时器保证无累积漂移，精度远高于软件手动累加。
-     */
     if (g_rtc_synced) {
-        uint64_t elapsed_ms = k_uptime_get() - g_rtc_base_uptime;
-        uint64_t now_unix   = g_rtc_base_unix + elapsed_ms / 1000;
-        unix_to_calendar(now_unix, &y, &mo, &d, &h, &mi, &s, &wd);
-
-        /* [同步全局变量] 保持兼容性 */
-        g_current_year   = y;
-        g_current_month  = mo;
-        g_current_day    = d;
-        g_current_hour   = h;
-        g_current_minute = mi;
-        g_current_second = s;
-        g_current_weekday = wd;
+        uint64_t now = g_rtc_base_unix
+                       + (k_uptime_get() - g_rtc_base_uptime) / 1000;
+        unix_to_calendar(now, &y, &mo, &d, &h, &mi, &s, &wd);
+        g_current_year=y; g_current_month=mo; g_current_day=d;
+        g_current_hour=h; g_current_minute=mi; g_current_second=s;
+        g_current_weekday=wd;
     } else {
-        /* RTC 尚未同步，使用默认值 */
-        y = g_current_year; mo = g_current_month; d = g_current_day;
-        h = g_current_hour; mi = g_current_minute; s = g_current_second;
-        wd = g_current_weekday;
+        y=g_current_year; mo=g_current_month; d=g_current_day;
+        h=g_current_hour; mi=g_current_minute; s=g_current_second;
+        wd=g_current_weekday;
     }
 
-    /* 时间: "22:48:36" */
+    /* 时间 */
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, mi, s);
     lv_label_set_text(cy_time_label, buf);
 
-    /* 日期: "Sat  06/14" */
-    snprintf(buf, sizeof(buf), "%s  %02d/%02d",
-             wd_str[wd % 7], mo, d);
+    /* 日期 */
+    snprintf(buf, sizeof(buf), "%s %02d/%02d", wd_str[wd%7], mo, d);
     lv_label_set_text(cy_date_label, buf);
 
     /* WiFi */
     if (g_wifi_connected) {
-        lv_label_set_text(cy_wifi_label, "WIFI:ON");
+        lv_label_set_text(cy_wifi_label, "WIFI: ON");
         lv_obj_set_style_text_color(cy_wifi_label, CYBER_CYAN, 0);
     } else {
-        lv_label_set_text(cy_wifi_label, "WIFI:OFF");
+        lv_label_set_text(cy_wifi_label, "WIFI: OFF");
         lv_obj_set_style_text_color(cy_wifi_label, CYBER_RED, 0);
     }
 
-    /* 天气 (用英文 WMO 映射，避免中文字体乱码) */
+    /* 温度 + 温度计液柱 */
     if (g_weather_ready) {
-        snprintf(buf, sizeof(buf), "%d C", g_temperature);
+        snprintf(buf, sizeof(buf), "%d", g_temperature);
         lv_label_set_text(cy_temp_label, buf);
-        lv_label_set_text(cy_weather_label, wmo_to_en(g_weather_code));
-        snprintf(buf, sizeof(buf), "Wind %d km/h", g_wind_speed);
-        lv_label_set_text(cy_wind_label, buf);
+        /* 液柱高度: 温度 0→40°C 映射到 4→30px */
+        int liq_h = 4 + (g_temperature * 26) / 40;
+        if (liq_h < 4)  liq_h = 4;
+        if (liq_h > 30) liq_h = 30;
+        lv_obj_set_size(cy_therm_liquid, 4, liq_h);
     }
 
     /* 同步状态 */
     if (g_wifi_connected && g_time_synced && g_weather_ready) {
-        lv_label_set_text(cy_status_label, "SYNC OK");
-        lv_obj_set_style_text_color(cy_status_label, CYBER_GREEN, 0);
+        lv_label_set_text(cy_sync_label, "SYSTEM: SYNC OK");
+        lv_obj_set_style_text_color(cy_sync_label, CYBER_GREEN, 0);
     } else if (g_wifi_connected && g_time_synced) {
-        lv_label_set_text(cy_status_label, "SYNCING...");
-        lv_obj_set_style_text_color(cy_status_label, CYBER_YELLOW, 0);
+        lv_label_set_text(cy_sync_label, "SYSTEM: SYNCING...");
+        lv_obj_set_style_text_color(cy_sync_label, CYBER_YELLOW, 0);
     } else {
-        lv_label_set_text(cy_status_label, "WAITING NET");
-        lv_obj_set_style_text_color(cy_status_label, CYBER_ORANGE, 0);
+        lv_label_set_text(cy_sync_label, "SYSTEM: WAITING NET");
+        lv_obj_set_style_text_color(cy_sync_label, CYBER_YELLOW, 0);
     }
-
-    /* 装饰线闪烁 */
-    static int tick = 0;
-    tick++;
-    lv_color_t dc = (tick % 2 == 0) ? CYBER_MAGENTA : CYBER_CYAN;
-    lv_obj_set_style_text_color(cy_deco_a, dc, 0);
-    lv_obj_set_style_text_color(cy_deco_b, dc, 0);
 }
 
+/* ==================== 构建赛博朋克时钟 ==================== */
 static void lvgl_draw_cyberpunk_clock(void)
 {
-    /* [圆角屏边距] 四边留 10px */
-    #define PAD 10
-
-    LOG_INF("Building cyberpunk clock...");
-
-    /* 清理 + 纯黑背景 */
     lv_obj_clean(app_screen);
-    lv_obj_set_style_bg_color(app_screen, lv_color_hex(0x000000),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(app_screen, LV_OPA_COVER,
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(app_screen, CYBER_BG, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(app_screen, LV_OPA_COVER, LV_PART_MAIN);
 
-    /* ===== 顶部栏: WiFi(左) + 日期(右上) ===== */
+    /* 电路板背景线 */
+    draw_circuit_bg();
+
+    /* WiFi (左上) */
     cy_wifi_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_wifi_label, "WIFI:OFF");
-    lv_obj_set_style_text_color(cy_wifi_label, CYBER_RED, 0);
+    lv_label_set_text(cy_wifi_label, "WIFI: OFF");
+    lv_obj_set_style_text_color(cy_wifi_label, CYBER_CYAN, 0);
     lv_obj_set_style_text_font(cy_wifi_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_wifi_label, LV_ALIGN_TOP_LEFT, PAD, PAD);
+    lv_obj_align(cy_wifi_label, LV_ALIGN_TOP_LEFT, 12, 12);
 
+    /* 日期 (右上) */
     cy_date_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_date_label, "---  --/--");
-    lv_obj_set_style_text_color(cy_date_label, CYBER_MAGENTA, 0);
+    lv_label_set_text(cy_date_label, "--- --/--");
+    lv_obj_set_style_text_color(cy_date_label, CYBER_PINK, 0);
     lv_obj_set_style_text_font(cy_date_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_date_label, LV_ALIGN_TOP_RIGHT, -PAD, PAD);
+    lv_obj_align(cy_date_label, LV_ALIGN_TOP_RIGHT, -12, 12);
 
-    /* ===== 时间 HH:MM (24号最大字, 霓虹青, 屏幕正中偏上) ===== */
+    /* 时间 (48号巨字, 霓虹青, 正中偏上) */
     cy_time_label = lv_label_create(app_screen);
     lv_label_set_text(cy_time_label, "--:--:--");
     lv_obj_set_style_text_color(cy_time_label, CYBER_CYAN, 0);
-    lv_obj_set_style_text_font(cy_time_label, &lv_font_montserrat_24, 0);
-    lv_obj_align(cy_time_label, LV_ALIGN_CENTER, 0, -15);
+    lv_obj_set_style_text_font(cy_time_label, &lv_font_montserrat_48, 0);
+    lv_obj_align(cy_time_label, LV_ALIGN_CENTER, 0, -25);
 
-    /* ===== 温度 (16号, 黄) ===== */
+    /* 天气区: 云图标 (左) + 温度数字 (右) */
+    lv_obj_t *cloud = create_cloud_icon();
+    lv_obj_align(cloud, LV_ALIGN_CENTER, -55, 60);
+
+    lv_obj_t *therm = create_thermometer();
+    lv_obj_align(therm, LV_ALIGN_CENTER, -5, 62);
+
     cy_temp_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_temp_label, "-- C");
+    lv_label_set_text(cy_temp_label, "--");
     lv_obj_set_style_text_color(cy_temp_label, CYBER_YELLOW, 0);
-    lv_obj_set_style_text_font(cy_temp_label, &lv_font_montserrat_16, 0);
-    lv_obj_align(cy_temp_label, LV_ALIGN_CENTER, 0, 45);
+    lv_obj_set_style_text_font(cy_temp_label, &lv_font_montserrat_28, 0);
+    lv_obj_align(cy_temp_label, LV_ALIGN_CENTER, 40, 60);
 
-    /* ===== 天气 + 风速 (14号, 青+灰, 同行) ===== */
-    cy_weather_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_weather_label, "waiting...");
-    lv_obj_set_style_text_color(cy_weather_label, CYBER_CYAN, 0);
-    lv_obj_set_style_text_font(cy_weather_label, &lv_font_montserrat_14, 0);
-    lv_obj_align(cy_weather_label, LV_ALIGN_CENTER, 0, 70);
+    /* 底部状态栏 (荧光绿边框) */
+    lv_obj_t *status_box = lv_obj_create(app_screen);
+    lv_obj_set_size(status_box, 190, 32);
+    lv_obj_align(status_box, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_style_bg_opa(status_box, LV_OPA_20, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(status_box, CYBER_GREEN, LV_PART_MAIN);
+    lv_obj_set_style_border_color(status_box, CYBER_GREEN, LV_PART_MAIN);
+    lv_obj_set_style_border_width(status_box, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(status_box, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(status_box, 0, LV_PART_MAIN);
 
-    cy_wind_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_wind_label, "Wind -- km/h");
-    lv_obj_set_style_text_color(cy_wind_label, CYBER_DIM, 0);
-    lv_obj_set_style_text_font(cy_wind_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_wind_label, LV_ALIGN_CENTER, 0, 90);
+    cy_sync_label = lv_label_create(status_box);
+    lv_label_set_text(cy_sync_label, "SYSTEM: WAITING NET");
+    lv_obj_set_style_text_color(cy_sync_label, CYBER_GREEN, 0);
+    lv_obj_set_style_text_font(cy_sync_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(cy_sync_label, LV_ALIGN_CENTER, 0, 0);
 
-    /* ===== 同步状态 (底部) ===== */
-    cy_status_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_status_label, "WAITING NET");
-    lv_obj_set_style_text_color(cy_status_label, CYBER_ORANGE, 0);
-    lv_obj_set_style_text_font(cy_status_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_status_label, LV_ALIGN_BOTTOM_MID, 0, -PAD);
-
-    /* 装饰闪烁 — 保留两道线增加赛博感 */
-    cy_deco_a = lv_label_create(app_screen);
-    lv_label_set_text(cy_deco_a, "-----------------");
-    lv_obj_set_style_text_color(cy_deco_a, CYBER_DIM, 0);
-    lv_obj_set_style_text_font(cy_deco_a, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_deco_a, LV_ALIGN_CENTER, 0, 28);
-
-    cy_deco_b = lv_label_create(app_screen);
-    lv_label_set_text(cy_deco_b, "-----------------");
-    lv_obj_set_style_text_color(cy_deco_b, CYBER_DIM, 0);
-    lv_obj_set_style_text_font(cy_deco_b, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_deco_b, LV_ALIGN_BOTTOM_MID, 0, -30);
-
-    /* 每秒刷新 */
+    /* 1Hz RTC 刷新 */
     lv_timer_create(cyberpunk_clock_update, 1000, NULL);
-
-    LOG_INF("Cyberpunk clock ready.");
+    LOG_INF("Cyberpunk clock ready (48px + circuit + thermometer).");
 }
 
 /* ==================== 显示设备初始化函数 ==================== */
