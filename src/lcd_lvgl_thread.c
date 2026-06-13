@@ -253,8 +253,8 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
     k_sleep(K_SECONDS(5));
 
     /* ---------- 步骤 6: 拒绝释放容器，通过单级复用机制刷新至主表盘 ---------- */
-    LOG_INF("Switching watch views directly...");
-    lvgl_draw_main_watch_ui();
+    // LOG_INF("Switching watch views directly...");
+    // lvgl_draw_main_watch_ui();
 
     /* ---------- 步骤 7: 进入低功耗长效状态心跳循环 ---------- */
     while (1) {

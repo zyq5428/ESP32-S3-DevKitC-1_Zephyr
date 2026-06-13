@@ -43,6 +43,7 @@ target_sources(app PRIVATE
     # src/bt_peripheral_thread.c
     src/bt_peripheral_nus_thread.c
     src/lcd_lvgl_thread.c
+    src/wifi_weather_thread.c
     src/images/zephyr_200x116.c
     # src/lvgl_benchmark_thread.c        # [可选] LVGL 官方性能测试 (需同时启用 prj.conf 中的 CONFIG_LV_USE_DEMO_BENCHMARK)
 )
