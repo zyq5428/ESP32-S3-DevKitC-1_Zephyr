@@ -46,7 +46,7 @@ target_sources(app PRIVATE
     src/wifi_weather_thread.c
     src/fonts/weather_chinese_font.c
     src/images/zephyr_200x116.c
-    src/images/happy_240x280.c
+    src/images/cyberpunk_240x280.c
     # src/lvgl_benchmark_thread.c        # [可选] LVGL 官方性能测试 (需同时启用 prj.conf 中的 CONFIG_LV_USE_DEMO_BENCHMARK)
 )
 

@@ -35,10 +35,10 @@
 
 /* ==================== 外部资源声明 ==================== */
 /*
- * [背景] happy_240x280 — 240×280 全屏背景图 (RGB565)
- * 源文件: src/images/happy_240x280.c
+ * [背景] cyberpunk_240x280 — 240×280 全屏背景图 (RGB565)
+ * 源文件: src/images/cyberpunk_240x280.c
  */
-extern const lv_image_dsc_t happy_240x280;
+extern const lv_image_dsc_t cyberpunk_240x280;
 
 /*
  * [字体] weather_chinese_font — 16px 4bpp 中文天气字体
@@ -459,9 +459,9 @@ static void lvgl_draw_cyberpunk_clock(void)
     lv_obj_set_style_bg_opa(app_screen, LV_OPA_COVER, LV_PART_MAIN);
 
     /* 全屏背景图 — 设为屏幕的 style 背景，所有子控件自然在上层 */
-    lv_obj_set_style_bg_image_src(app_screen, &happy_240x280,
+    lv_obj_set_style_bg_image_src(app_screen, &cyberpunk_240x280,
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_image_opa(app_screen, LV_OPA_COVER,
+    lv_obj_set_style_bg_image_opa(app_screen, LV_OPA_30,
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
 
     /* ======== 1. 状态栏: WiFi + 蓝牙 (左上), 电池 (右上) ======== */

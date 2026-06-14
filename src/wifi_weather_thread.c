@@ -125,14 +125,14 @@ LOG_MODULE_REGISTER(WIFI_WEATHER, LOG_LEVEL_INF);
  * 用户可根据自己所在城市修改此值
  * 北京=39.90, 上海=31.23, 广州=23.13, 深圳=22.54
  */
-#define WEATHER_LAT     22.54
+#define WEATHER_LAT     22.5431
 
 /*
  * [查询城市经度] 深圳 (Shenzhen) ≈ 114.06°E
  * 用户可根据自己所在城市修改此值
  * 北京=116.41, 上海=121.47, 广州=113.26, 深圳=114.06
  */
-#define WEATHER_LON     114.06
+#define WEATHER_LON     114.0579
 
 /*
  * [天气查询间隔] 每隔 600 秒 (10 分钟) 拉取一次天气数据
@@ -676,7 +676,7 @@ static const char *wmo_code_to_zh_description(int code)
  * [函数] 通过 HTTP GET 请求获取天气数据
  *
  * JSON 解析采用手动字符串搜索方式，直接在 HTTP 响应正文中
- * 查找 temperature/weathercode/windspeed 字段并提取整数值。
+ * 查找 temperature_2m/relative_humidity_2m/weather_code/wind_speed_10m 字段。
  * 避免使用 Zephyr JSON 库 (其浮点解析依赖 FULL_LIBC)。
  *
  * 使用原始 TCP Socket 发起 HTTP/1.1 GET 请求到 Open-Meteo API。
@@ -789,8 +789,9 @@ static int fetch_weather(void)
      */
     char http_request[512];
     int req_len = snprintf(http_request, sizeof(http_request),
-        "GET /v1/forecast?latitude=%.2f&longitude=%.2f"
-        "&current_weather=true HTTP/1.1\r\n"
+        "GET /v1/forecast?latitude=%.4f&longitude=%.4f"
+        "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+        "&timezone=Asia%%2FShanghai HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Connection: close\r\n"
         "\r\n",
@@ -879,19 +880,22 @@ static int fetch_weather(void)
      */
 
     /*
-     * [辅助宏] 从 current_weather 子对象中提取某个键后面的整数值
+     * [辅助宏] 从 "current" 子对象中提取某个键后面的整数值
      *
-     * 为什么要限定在 current_weather 内搜索:
-     *   Open-Meteo 响应有两个 "temperature" 键:
-     *     current_weather_units.temperature = "°C"  (字符串, 先出现)
-     *     current_weather.temperature = 27.4        (数字, 后出现)
-     *   strstr() 会先匹配到 units 中的字符串型值, 导致解析失败。
-     *   因此需要先定位 "current_weather":{ 再在其后搜索。
+     * 新版 API 使用 &current= 参数，返回格式:
+     *   "current": {
+     *     "temperature_2m": 27.4,
+     *     "relative_humidity_2m": 65,
+     *     "weather_code": 3,
+     *     "wind_speed_10m": 12.0
+     *   }
+     *
+     * 先定位 "current":{ 再在其后搜索，避免匹配到其他地方的同名字段。
      */
-    const char *cw_start = strstr(json_start, "\"current_weather\":{");
+    const char *cw_start = strstr(json_start, "\"current\":{");
     if (cw_start == NULL) {
-        /* [容错] 旧版 API 可能把 current_weather 拼写不同 */
-        cw_start = json_start;
+        LOG_ERR("未找到 \"current\":{ 对象，JSON 解析失败");
+        return -EINVAL;
     }
 
     #define JSON_EXTRACT_INT(json_ptr, key, out_ptr) do {          \
@@ -910,14 +914,17 @@ static int fetch_weather(void)
         }                                                          \
     } while (0)
 
-    /* [提取温度] 在 current_weather 对象内找到 "temperature":27.4 → 27 */
-    JSON_EXTRACT_INT(cw_start, "temperature", &g_temperature);
+    /* [提取温度] "temperature_2m":27.4 → 27 */
+    JSON_EXTRACT_INT(cw_start, "temperature_2m", &g_temperature);
 
-    /* [提取天气代码] 在 current_weather 对象内找到 "weathercode":3 → 3 */
-    JSON_EXTRACT_INT(cw_start, "weathercode", &g_weather_code);
+    /* [提取湿度] "relative_humidity_2m":65 → 65 (%) */
+    JSON_EXTRACT_INT(cw_start, "relative_humidity_2m", &g_humidity);
 
-    /* [提取风速] 在 current_weather 对象内找到 "windspeed":12.0 → 12 */
-    JSON_EXTRACT_INT(cw_start, "windspeed", &g_wind_speed);
+    /* [提取天气代码] "weather_code":3 → 3 */
+    JSON_EXTRACT_INT(cw_start, "weather_code", &g_weather_code);
+
+    /* [提取风速] "wind_speed_10m":12.0 → 12 (km/h) */
+    JSON_EXTRACT_INT(cw_start, "wind_speed_10m", &g_wind_speed);
 
     /* [更新天气描述] 根据 WMO 代码查找对应的中文描述 */
     const char *desc = wmo_code_to_zh_description(g_weather_code);
@@ -929,12 +936,13 @@ static int fetch_weather(void)
 
     /* [日志] 使用局部变量避免 volatile 类型警告 */
     int tmp_temp = g_temperature;
+    int tmp_hum  = g_humidity;
     int tmp_wind = g_wind_speed;
     char tmp_desc[32];
     strncpy(tmp_desc, (const char *)g_weather_desc, sizeof(tmp_desc) - 1);
     tmp_desc[sizeof(tmp_desc) - 1] = '\0';
-    LOG_INF("天气获取成功! 温度: %d°C, 天气: %s, 风速: %d km/h",
-            tmp_temp, tmp_desc, tmp_wind);
+    LOG_INF("天气获取成功! 温度: %d°C, 湿度: %d%%, 天气: %s, 风速: %d km/h",
+            tmp_temp, tmp_hum, tmp_desc, tmp_wind);
 
     return 0;
 }
@@ -1189,15 +1197,15 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
         {
             int y = g_current_year, mo = g_current_month, d = g_current_day;
             int h = g_current_hour, mi = g_current_minute, s = g_current_second;
-            int wd = g_current_weekday, t = g_temperature, ws = g_wind_speed;
+            int wd = g_current_weekday, t = g_temperature, hd = g_humidity, ws = g_wind_speed;
             bool wc = g_wifi_connected;
             char desc[32];
             strncpy(desc, (const char *)g_weather_desc, sizeof(desc) - 1);
             desc[sizeof(desc) - 1] = '\0';
-            LOG_INF("[心跳 #%u] WiFi=%s | %04d-%02d-%02d %02d:%02d:%02d 周%d | %d°C %s 风%dkm/h",
+            LOG_INF("[心跳 #%u] WiFi=%s | %04d-%02d-%02d %02d:%02d:%02d 周%d | %d°C %d%% %s 风%dkm/h",
                     loop_count,
                     wc ? "已连接" : "断开",
-                    y, mo, d, h, mi, s, wd, t, desc, ws);
+                    y, mo, d, h, mi, s, wd, t, hd, desc, ws);
         }
 
         /*
