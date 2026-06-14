@@ -35,10 +35,10 @@
 
 /* ==================== 外部资源声明 ==================== */
 /*
- * [背景] sbpk_240x280 — 赛博朋克风 240×280 全屏背景图 (RGB565)
- * 源文件: src/images/sbpk_240x280.c
+ * [背景] happy_240x280 — 240×280 全屏背景图 (RGB565)
+ * 源文件: src/images/happy_240x280.c
  */
-extern const lv_image_dsc_t sbpk_240x280;
+extern const lv_image_dsc_t happy_240x280;
 
 /*
  * [字体] weather_chinese_font — 16px 4bpp 中文天气字体
@@ -458,10 +458,11 @@ static void lvgl_draw_cyberpunk_clock(void)
     lv_obj_set_style_bg_color(app_screen, CYBER_BG, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(app_screen, LV_OPA_COVER, LV_PART_MAIN);
 
-    /* 赛博朋克全屏背景图 (240×280, RGB565, 最底层) */
-    lv_obj_t *bg_img = lv_image_create(app_screen);
-    lv_image_set_src(bg_img, &sbpk_240x280);
-    lv_obj_align(bg_img, LV_ALIGN_CENTER, 0, 0);
+    /* 全屏背景图 — 设为屏幕的 style 背景，所有子控件自然在上层 */
+    lv_obj_set_style_bg_image_src(app_screen, &happy_240x280,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_image_opa(app_screen, LV_OPA_COVER,
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
 
     /* ======== 1. 状态栏: WiFi + 蓝牙 (左上), 电池 (右上) ======== */
     /* 【R角优化】将左侧图标向右整体挪动，防止左上角R角切割 */
@@ -552,10 +553,10 @@ static void lvgl_draw_cyberpunk_clock(void)
     lv_label_set_text(cy_weather_label, "等待中...");
     lv_obj_set_style_text_color(cy_weather_label, CYBER_PINK, 0);
     lv_obj_set_style_text_font(cy_weather_label, &weather_chinese_font, 0);
-    
-    lv_obj_set_width(cy_weather_label, 240); 
-    lv_obj_set_style_text_align(cy_weather_label, LV_TEXT_ALIGN_CENTER, 0); 
-    lv_obj_align(cy_weather_label, LV_ALIGN_TOP_MID, 0, 204); 
+
+    lv_obj_set_width(cy_weather_label, 240);
+    lv_obj_set_style_text_align(cy_weather_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(cy_weather_label, LV_ALIGN_TOP_MID, 0, 204);
 
     /* [风速信息] */
     cy_wind_label = lv_label_create(app_screen);
