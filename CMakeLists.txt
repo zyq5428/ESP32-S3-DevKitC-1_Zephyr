@@ -44,30 +44,32 @@ target_sources(app PRIVATE
     src/bt_peripheral_nus_thread.c
     src/lcd_lvgl_thread.c
     src/wifi_weather_thread.c
+    src/fonts/weather_chinese_font.c
     src/images/zephyr_200x116.c
+    src/images/sbpk_240x280.c
     # src/lvgl_benchmark_thread.c        # [可选] LVGL 官方性能测试 (需同时启用 prj.conf 中的 CONFIG_LV_USE_DEMO_BENCHMARK)
 )
 
 # [LVGL Widgets Demo] 收集上游 LVGL 仓库中的 demo 源文件
 # Zephyr 的 LVGL 模块只编译核心库, demo 的 .c 文件需要手动加入 target_sources
 # lv_demos.c 是伞形文件, 根据 CONFIG_LV_USE_DEMO_WIDGETS 用 #if 条件包含各子文件
-file(GLOB_RECURSE LVGL_WIDGETS_SOURCES
-    # [伞形文件] 根据 Kconfig 决定编译哪些 demo (必须首先包含)
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/lv_demos.c
-    # [Widgets 主文件] 创建 TabView 容器 + 4 个 Tab 页面 + 自动幻灯片定时器
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets.c
-    # [4 个子页面] 每个 Tab 对应一个独立的功能页面
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_shop.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_analytics.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_profile.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_components.c
-    # [图片资源] 预编译的 RGBA 像素数组, 链接到 Flash .rodata 段
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_lvgl_logo.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_clothes.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_demo_widgets_avatar.c
-    ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_demo_widgets_needle.c
-)
-target_sources(app PRIVATE ${LVGL_WIDGETS_SOURCES})
+# file(GLOB_RECURSE LVGL_WIDGETS_SOURCES
+#     # [伞形文件] 根据 Kconfig 决定编译哪些 demo (必须首先包含)
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/lv_demos.c
+#     # [Widgets 主文件] 创建 TabView 容器 + 4 个 Tab 页面 + 自动幻灯片定时器
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets.c
+#     # [4 个子页面] 每个 Tab 对应一个独立的功能页面
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_shop.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_analytics.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_profile.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/lv_demo_widgets_components.c
+#     # [图片资源] 预编译的 RGBA 像素数组, 链接到 Flash .rodata 段
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_lvgl_logo.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_clothes.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_demo_widgets_avatar.c
+#     ${ZEPHYR_LVGL_MODULE_DIR}/demos/widgets/assets/img_demo_widgets_needle.c
+# )
+# target_sources(app PRIVATE ${LVGL_WIDGETS_SOURCES})
 
 # (可选) 链接所需的 Zephyr 库
 # 正确的链接方式：只需要链接到 'zephyr' 目标

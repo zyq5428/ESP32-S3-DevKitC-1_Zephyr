@@ -33,6 +33,19 @@
 #include "wifi_weather_thread.h"    /* [头文件] WiFi/天气/时间 全局变量 */
 #include "images/zephyr_200x116.h"  /* [头文件] Zephyr Logo 图像描述符 */
 
+/* ==================== 外部资源声明 ==================== */
+/*
+ * [背景] sbpk_240x280 — 赛博朋克风 240×280 全屏背景图 (RGB565)
+ * 源文件: src/images/sbpk_240x280.c
+ */
+extern const lv_image_dsc_t sbpk_240x280;
+
+/*
+ * [字体] weather_chinese_font — 16px 4bpp 中文天气字体
+ * 源文件: src/fonts/weather_chinese_font.c
+ */
+extern const lv_font_t weather_chinese_font;
+
 /* ==================== 标准库头文件 ==================== */
 #include <stdio.h>                  /* [格式化] snprintf */
 
@@ -132,7 +145,7 @@ static void lvgl_draw_boot_ui(void)
 
     /* 装饰线 — 霓虹品红色 */
     lv_obj_t *deco_line = lv_label_create(app_screen);
-    lv_label_set_text(deco_line, "◢ ▬▬▬▬▬ ◆ ▬▬▬▬▬ ◣");
+    lv_label_set_text(deco_line, "<<<<<<O>>>>>");
     lv_obj_set_style_text_color(deco_line, neon_magenta, 0);
     lv_obj_set_style_text_font(deco_line, &lv_font_montserrat_12, 0);
     lv_obj_align(deco_line, LV_ALIGN_BOTTOM_MID, 0, -45);
@@ -152,22 +165,36 @@ static void lvgl_draw_boot_ui(void)
  *
  * 界面布局 (240x280, 圆角屏四边留 12px 安全边距):
  *   ┌────────────────────────────┐
- *   │  ◆ WIFI:ON      [====] 100%│  ← 状态栏 (y:12)
- *   │  ═══════ ◆ ════════      │  ← 上装饰线
+ *   │                       │  ← 状态栏 (y=8)
  *   │                            │
- *   │       22 : 48 : 36          │  ← 时间 (青/灰, 14号字)
- *   │      周六  06/13            │  ← 日期 (品红, 14号字)
- *   │      ── ◆ ── ◆ ──        │  ← 分隔装饰
+ *   │      周六  06/14            │  ← 日期 28号 (y≈80)
+ *   │       22 : 48 : 36          │  ← 时间 48号 (y≈115)
  *   │                            │
- *   │         27°C               │  ← 温度 (黄, 14号字)
- *   │         阴天                │  ← 天气 (青, 14号字)
- *   │      风: 11 km/h           │  ← 风速 (灰, 12号字)
+ *   │    ╭────╮    ╭────╮       │  ← 赛博朋克环形仪表 (y≈175)
+ *   │   ╱ 27°C ╲  ╱ 60% ╲     │    双弧霓虹光效
+ *   │  │  温度  ││  湿度  │     │    中心数值+中文标签
+ *   │   ╲      ╱  ╲      ╱     │
+ *   │    ╰────╯    ╰────╯       │
  *   │                            │
- *   │     ◢■■■ SYNC OK ■■■◣     │  ← 同步状态 (绿)
+ *   │   天气:多云  风速:12 km/h   │  ← 中文天气+风速 (y≈225)
+ *   │                            │
+ *   │   ◢■■■ SYSTEM SYNC OK ■■■◣│  ← 同步状态 (y≈268)
  *   └────────────────────────────┘
  *
- * 动态更新: LVGL 定时器每秒回调刷新所有动态文本。
- * 只使用 montserrat 12/14 (已验证可正常渲染)。
+ * 动态更新: LVGL 定时器每秒回调刷新所有动态文本和弧形仪表。
+ *
+ * 使用的字体：
+ *   - montserrat 12/14/28/48  (西文/数字)
+ *   - weather_chinese_font (自定义中文天气字体, 16px)
+ *
+ * 图标颜色规则:
+ *   - WiFi:   LV_SYMBOL_WIFI          蓝色(已连) / 灰色(未连)
+ *   - 蓝牙:   LV_SYMBOL_BLUETOOTH     蓝色(已连) / 灰色(未连)
+ *   - 电池:   LV_SYMBOL_BATTERY_FULL  绿色(≥50%) / 黄色(20~49%) / 红色(<20%)
+ *
+ * 环形仪表颜色规则:
+ *   - 温度弧: 青色(<10°C) / 绿色(10~30°C) / 红色(>30°C)
+ *   - 湿度弧: 青色(30~70%) / 黄色(<30%) / 粉色(>70%)
  */
 
 /* ==================== 赛博朋克配色 (16位 RGB565) ==================== */
@@ -178,15 +205,22 @@ static void lvgl_draw_boot_ui(void)
 #define CYBER_GREEN   lv_color_make(0, 255, 120)    /* 荧光绿 — 状态栏 */
 #define CYBER_DIM     lv_color_make(20, 40, 60)     /* 暗蓝微光 — 电路线 */
 #define CYBER_WHITE   lv_color_make(200, 200, 210)  /* 灰白 — 次要文字 */
-#define CYBER_RED     lv_color_make(255, 50, 50)    /* 霓虹红 — 断开 */
+#define CYBER_RED     lv_color_make(255, 50, 50)    /* 霓虹红 — 断开/低电量 */
+#define CYBER_GRAY    lv_color_make(128, 128, 140)  /* 暗灰 — 图标未连接 */
 
 /* ==================== 动态控件指针 (每秒刷新) ==================== */
 static lv_obj_t *cy_time_label     = NULL;
 static lv_obj_t *cy_date_label     = NULL;
-static lv_obj_t *cy_temp_label     = NULL;
 static lv_obj_t *cy_wifi_label     = NULL;
+static lv_obj_t *cy_bt_label       = NULL;   /* 蓝牙图标标签 */
+static lv_obj_t *cy_battery_label  = NULL;   /* 电池图标标签 */
 static lv_obj_t *cy_sync_label     = NULL;
-static lv_obj_t *cy_therm_liquid   = NULL;  /* 温度计液柱 */
+static lv_obj_t *cy_temp_arc       = NULL;   /* 温度环形仪表 */
+static lv_obj_t *cy_temp_val_label = NULL;   /* 温度环形中心数值 */
+static lv_obj_t *cy_humid_arc      = NULL;   /* 湿度环形仪表 */
+static lv_obj_t *cy_humid_val_label= NULL;   /* 湿度环形中心数值 */
+static lv_obj_t *cy_weather_label  = NULL;   /* 中文天气描述 */
+static lv_obj_t *cy_wind_label     = NULL;   /* 中文风速信息 */
 
 /* ==================== RTC → 日历转换 ==================== */
 static void unix_to_calendar(uint64_t unix_time,
@@ -227,105 +261,62 @@ static void unix_to_calendar(uint64_t unix_time,
     *wd = (day+2*mw+(3*(mw+1))/5+yw+yw/4-yw/100+yw/400+1)%7;
 }
 
-/* ==================== 电路板背景线 ==================== */
-static void draw_circuit_bg(void)
+/* ==================== 创建环形仪表盘辅助函数 ==================== */
+
+/*
+ * [函数] 创建赛博朋克风格弧形圆环仪表
+ *
+ * 设计要点:
+ *   - 双层弧: 底层暗色轨道(8px) + 上层霓虹指示器(10px, 略宽营造光晕感)
+ *   - 缺口在正下方 (旋转135°, 背景弧0~270°)
+ *   - 隐藏旋钮, 不可点击
+ *
+ * 参数:
+ *   - parent:     父容器
+ *   - size:       弧的外径 (宽=高=size)
+ *   - range_min:  最小值
+ *   - range_max:  最大值
+ *   - arc_color:  指示器默认霓虹颜色
+ *   - bg_color:   轨道暗色
+ *
+ * 返回: lv_arc 对象指针
+ */
+static lv_obj_t *create_arc_gauge(lv_obj_t *parent, int size,
+                                  int range_min, int range_max,
+                                  lv_color_t arc_color, lv_color_t bg_color)
 {
-    static lv_point_precise_t l1[] = { {0,40}, {30,40}, {60,10}, {100,10} };
-    lv_obj_t *line1 = lv_line_create(app_screen);
-    lv_line_set_points(line1, l1, 4);
-    lv_obj_set_style_line_color(line1, CYBER_DIM, LV_PART_MAIN);
-    lv_obj_set_style_line_width(line1, 2, LV_PART_MAIN);
+    lv_obj_t *arc = lv_arc_create(parent);
 
-    static lv_point_precise_t l2[] = { {220,0}, {220,100}, {190,130}, {190,200} };
-    lv_obj_t *line2 = lv_line_create(app_screen);
-    lv_line_set_points(line2, l2, 4);
-    lv_obj_set_style_line_color(line2, CYBER_DIM, LV_PART_MAIN);
-    lv_obj_set_style_line_width(line2, 2, LV_PART_MAIN);
+    /* [尺寸] 正方形 */
+    lv_obj_set_size(arc, size, size);
 
-    static lv_point_precise_t l3[] = { {5,120}, {50,120}, {70,100} };
-    lv_obj_t *line3 = lv_line_create(app_screen);
-    lv_line_set_points(line3, l3, 3);
-    lv_obj_set_style_line_color(line3, CYBER_DIM, LV_PART_MAIN);
-    lv_obj_set_style_line_width(line3, 1, LV_PART_MAIN);
-}
+    /* [隐藏旋钮] 纯显示仪表, 不可交互 */
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
 
-/* ==================== 霓虹温度计 ==================== */
-static lv_obj_t *create_thermometer(void)
-{
-    lv_obj_t *c = lv_obj_create(app_screen);
-    lv_obj_set_size(c, 30, 55);
-    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(c, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(c, 0, LV_PART_MAIN);
+    /* [旋转] 缺口在正下方: 旋转135° + 弧长270° */
+    lv_arc_set_rotation(arc, 135);
+    lv_arc_set_bg_angles(arc, 0, 270);
 
-    /* 玻璃管 */
-    lv_obj_t *tube = lv_obj_create(c);
-    lv_obj_set_size(tube, 8, 35);
-    lv_obj_align(tube, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_opa(tube, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_color(tube, lv_color_make(150,150,150), LV_PART_MAIN);
-    lv_obj_set_style_border_width(tube, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(tube, 4, LV_PART_MAIN);
+    /* [范围] 最小值→最大值 */
+    lv_arc_set_range(arc, range_min, range_max);
 
-    /* 液柱 (高度随温度动态调整) */
-    cy_therm_liquid = lv_obj_create(c);
-    lv_obj_set_size(cy_therm_liquid, 4, 10);
-    lv_obj_align(cy_therm_liquid, LV_ALIGN_TOP_MID, 0, 22);
-    lv_obj_set_style_bg_color(cy_therm_liquid, CYBER_YELLOW, LV_PART_MAIN);
-    lv_obj_set_style_border_width(cy_therm_liquid, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(cy_therm_liquid, 2, LV_PART_MAIN);
+    /* [轨道样式] 暗色底层, 8px宽 — 赛博朋克"关灯"效果 */
+    lv_obj_set_style_arc_color(arc, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, LV_OPA_60, LV_PART_MAIN);
 
-    /* 感温泡 */
-    lv_obj_t *bulb = lv_obj_create(c);
-    lv_obj_set_size(bulb, 16, 16);
-    lv_obj_align(bulb, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(bulb, CYBER_YELLOW, LV_PART_MAIN);
-    lv_obj_set_style_border_width(bulb, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(bulb, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    /* [指示器样式] 霓虹上层, 10px宽 — 比轨道略宽形成光晕感 */
+    lv_obj_set_style_arc_color(arc, arc_color, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
 
-    return c;
-}
+    /* [控件背景] 完全透明, 无边框 */
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(arc, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(arc, 0, LV_PART_MAIN);
 
-/* ==================== 霓虹云图标 ==================== */
-static lv_obj_t *create_cloud_icon(void)
-{
-    lv_obj_t *c = lv_obj_create(app_screen);
-    lv_obj_set_size(c, 70, 55);
-    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(c, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(c, 0, LV_PART_MAIN);
-
-    lv_obj_t *a1 = lv_arc_create(c);
-    lv_obj_set_size(a1, 30, 30);
-    lv_arc_set_angles(a1, 135, 360);
-    lv_obj_align(a1, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-    lv_obj_set_style_arc_color(a1, CYBER_PINK, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(a1, 3, LV_PART_MAIN);
-    lv_obj_set_style_opa(a1, LV_OPA_TRANSP, LV_PART_KNOB);
-
-    lv_obj_t *a2 = lv_arc_create(c);
-    lv_obj_set_size(a2, 35, 35);
-    lv_arc_set_angles(a2, 180, 45);
-    lv_obj_align(a2, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_style_arc_color(a2, CYBER_PINK, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(a2, 3, LV_PART_MAIN);
-    lv_obj_set_style_opa(a2, LV_OPA_TRANSP, LV_PART_KNOB);
-
-    /* 雨滴 */
-    static lv_point_precise_t dp[] = { {0,0}, {5,10} };
-    lv_obj_t *d1 = lv_line_create(c);
-    lv_line_set_points(d1, dp, 2);
-    lv_obj_set_style_line_color(d1, CYBER_PINK, LV_PART_MAIN);
-    lv_obj_set_style_line_width(d1, 3, LV_PART_MAIN);
-    lv_obj_align(d1, LV_ALIGN_BOTTOM_MID, -12, 8);
-
-    lv_obj_t *d2 = lv_line_create(c);
-    lv_line_set_points(d2, dp, 2);
-    lv_obj_set_style_line_color(d2, CYBER_PINK, LV_PART_MAIN);
-    lv_obj_set_style_line_width(d2, 3, LV_PART_MAIN);
-    lv_obj_align(d2, LV_ALIGN_BOTTOM_MID, 8, 8);
-
-    return c;
+    return arc;
 }
 
 /* ==================== 1Hz 刷新回调 ==================== */
@@ -348,35 +339,106 @@ static void cyberpunk_clock_update(lv_timer_t *timer)
         wd=g_current_weekday;
     }
 
-    /* 时间 */
+    /* 时间 (48号大字, 居中) */
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, mi, s);
     lv_label_set_text(cy_time_label, buf);
 
-    /* 日期 */
+    /* 日期 (28号大字, 位于时间上方, 品红色) */
     snprintf(buf, sizeof(buf), "%s %02d/%02d", wd_str[wd%7], mo, d);
     lv_label_set_text(cy_date_label, buf);
 
-    /* WiFi */
+    /* ---- 状态栏图标 ---- */
+
+    /* WiFi 图标: LV_SYMBOL_WIFI, 蓝色=已连接, 灰色=未连接 */
+    lv_label_set_text(cy_wifi_label, LV_SYMBOL_WIFI);
     if (g_wifi_connected) {
-        lv_label_set_text(cy_wifi_label, "WIFI: ON");
         lv_obj_set_style_text_color(cy_wifi_label, CYBER_CYAN, 0);
     } else {
-        lv_label_set_text(cy_wifi_label, "WIFI: OFF");
-        lv_obj_set_style_text_color(cy_wifi_label, CYBER_RED, 0);
+        lv_obj_set_style_text_color(cy_wifi_label, CYBER_GRAY, 0);
     }
 
-    /* 温度 + 温度计液柱 */
+    /* 蓝牙图标: LV_SYMBOL_BLUETOOTH, 蓝色=已连接, 灰色=未连接 */
+    lv_label_set_text(cy_bt_label, LV_SYMBOL_BLUETOOTH);
+    if (g_bluetooth_connected) {
+        lv_obj_set_style_text_color(cy_bt_label, CYBER_CYAN, 0);
+    } else {
+        lv_obj_set_style_text_color(cy_bt_label, CYBER_GRAY, 0);
+    }
+
+    /* 电池图标: LV_SYMBOL_BATTERY_FULL, 绿色=满(≥50%), 黄色=中(20~49%), 红色=低(<20%) */
+    lv_label_set_text(cy_battery_label, LV_SYMBOL_BATTERY_FULL);
+    if (g_battery_level >= 50) {
+        lv_obj_set_style_text_color(cy_battery_label, CYBER_GREEN, 0);
+    } else if (g_battery_level >= 20) {
+        lv_obj_set_style_text_color(cy_battery_label, CYBER_YELLOW, 0);
+    } else {
+        lv_obj_set_style_text_color(cy_battery_label, CYBER_RED, 0);
+    }
+
+    /* ---- 环形仪表: 温度 + 湿度 ---- */
+
     if (g_weather_ready) {
-        snprintf(buf, sizeof(buf), "%d", g_temperature);
-        lv_label_set_text(cy_temp_label, buf);
-        /* 液柱高度: 温度 0→40°C 映射到 4→30px */
-        int liq_h = 4 + (g_temperature * 26) / 40;
-        if (liq_h < 4)  liq_h = 4;
-        if (liq_h > 30) liq_h = 30;
-        lv_obj_set_size(cy_therm_liquid, 4, liq_h);
+        /* 温度环形仪表 */
+        int temp = g_temperature;
+        if (temp < -20) temp = -20;
+        if (temp > 50)  temp = 50;
+        lv_arc_set_value(cy_temp_arc, temp);
+
+        /* 温度中心数值 */
+        snprintf(buf, sizeof(buf), "%d°C", temp);
+        lv_label_set_text(cy_temp_val_label, buf);
+
+        /* 温度弧颜色: 青(<10°C) / 绿(10~30°C) / 红(>30°C) */
+        lv_color_t temp_color;
+        if (temp < 10) {
+            temp_color = CYBER_CYAN;
+        } else if (temp <= 30) {
+            temp_color = CYBER_GREEN;
+        } else {
+            temp_color = CYBER_RED;
+        }
+        lv_obj_set_style_arc_color(cy_temp_arc, temp_color, LV_PART_INDICATOR);
+        lv_obj_set_style_text_color(cy_temp_val_label, temp_color, 0);
+
+        /* 湿度环形仪表 */
+        int humid = g_humidity;
+        if (humid < 0)   humid = 0;
+        if (humid > 100) humid = 100;
+        lv_arc_set_value(cy_humid_arc, humid);
+
+        /* 湿度中心数值 */
+        snprintf(buf, sizeof(buf), "%d%%", humid);
+        lv_label_set_text(cy_humid_val_label, buf);
+
+        /* 湿度弧颜色: 黄(<30%) / 青(30~70%) / 粉(>70%) */
+        lv_color_t hum_color;
+        if (humid < 30) {
+            hum_color = CYBER_YELLOW;
+        } else if (humid <= 70) {
+            hum_color = CYBER_CYAN;
+        } else {
+            hum_color = CYBER_PINK;
+        }
+        lv_obj_set_style_arc_color(cy_humid_arc, hum_color, LV_PART_INDICATOR);
+        lv_obj_set_style_text_color(cy_humid_val_label, hum_color, 0);
+
+        /* * 【安全修复】创建一个局部的缓冲区，把 volatile 字符串安全地拷贝出来
+        * 假设天气描述最大长度不超过 32 字节
+        */
+        char local_weather_desc[32] = {0};
+        
+        // 使用 snprintf 安全地将 volatile 的全局变量复制给非 volatile 的局部数组
+        snprintf(local_weather_desc, sizeof(local_weather_desc), "%s", (const char *)g_weather_desc);
+
+        /* * 现在将没有 volatile 风险的局部变量传给 LVGL，警告完美消失！*/
+        lv_label_set_text(cy_weather_label, local_weather_desc);
+
+        /* 中文风速信息 */
+        snprintf(buf, sizeof(buf), "风速：%dkm/h", g_wind_speed);
+        lv_label_set_text(cy_wind_label, buf);
     }
 
-    /* 同步状态 */
+    /* ---- 底部同步状态 ---- */
     if (g_wifi_connected && g_time_synced && g_weather_ready) {
         lv_label_set_text(cy_sync_label, "SYSTEM: SYNC OK");
         lv_obj_set_style_text_color(cy_sync_label, CYBER_GREEN, 0);
@@ -389,54 +451,130 @@ static void cyberpunk_clock_update(lv_timer_t *timer)
     }
 }
 
-/* ==================== 构建赛博朋克时钟 ==================== */
+/* ==================== 构建赛博朋克时钟 (240*280 + R角屏完美适配版) ==================== */
 static void lvgl_draw_cyberpunk_clock(void)
 {
     lv_obj_clean(app_screen);
     lv_obj_set_style_bg_color(app_screen, CYBER_BG, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(app_screen, LV_OPA_COVER, LV_PART_MAIN);
 
-    /* 电路板背景线 */
-    draw_circuit_bg();
+    /* 赛博朋克全屏背景图 (240×280, RGB565, 最底层) */
+    lv_obj_t *bg_img = lv_image_create(app_screen);
+    lv_image_set_src(bg_img, &sbpk_240x280);
+    lv_obj_align(bg_img, LV_ALIGN_CENTER, 0, 0);
 
-    /* WiFi (左上) */
+    /* ======== 1. 状态栏: WiFi + 蓝牙 (左上), 电池 (右上) ======== */
+    /* 【R角优化】将左侧图标向右整体挪动，防止左上角R角切割 */
     cy_wifi_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_wifi_label, "WIFI: OFF");
-    lv_obj_set_style_text_color(cy_wifi_label, CYBER_CYAN, 0);
-    lv_obj_set_style_text_font(cy_wifi_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_wifi_label, LV_ALIGN_TOP_LEFT, 12, 12);
+    lv_label_set_text(cy_wifi_label, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(cy_wifi_label, CYBER_GRAY, 0);
+    lv_obj_set_style_text_font(cy_wifi_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(cy_wifi_label, LV_ALIGN_TOP_LEFT, 24, 8); // X从12改到24，安全避开R角
 
-    /* 日期 (右上) */
+    cy_bt_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_bt_label, LV_SYMBOL_BLUETOOTH);
+    lv_obj_set_style_text_color(cy_bt_label, CYBER_GRAY, 0);
+    lv_obj_set_style_text_font(cy_bt_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(cy_bt_label, LV_ALIGN_TOP_LEFT, 52, 8); // 顺延挪动
+
+    /* 【R角优化】将右侧电池图标向左挪动，防止右上角R角切割 */
+    cy_battery_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_battery_label, LV_SYMBOL_BATTERY_FULL);
+    lv_obj_set_style_text_color(cy_battery_label, CYBER_GREEN, 0);
+    lv_obj_set_style_text_font(cy_battery_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(cy_battery_label, LV_ALIGN_TOP_RIGHT, -24, 8); // X从-12改到-24，安全避开R角
+
+
+    /* ======== 2. 日期与时间 (【冻结保留】完美居中版 + 顶部R角微调) ======== */
     cy_date_label = lv_label_create(app_screen);
     lv_label_set_text(cy_date_label, "--- --/--");
     lv_obj_set_style_text_color(cy_date_label, CYBER_PINK, 0);
-    lv_obj_set_style_text_font(cy_date_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(cy_date_label, LV_ALIGN_TOP_RIGHT, -12, 12);
+    lv_obj_set_style_text_font(cy_date_label, &lv_font_montserrat_28, 0);
+    /* 【R角优化】日期大字稍微往下靠一点（26 -> 32），防止字头碰到上方边缘弧度 */
+    lv_obj_align(cy_date_label, LV_ALIGN_TOP_MID, 0, 32); 
 
-    /* 时间 (48号巨字, 霓虹青, 正中偏上) */
     cy_time_label = lv_label_create(app_screen);
     lv_label_set_text(cy_time_label, "--:--:--");
     lv_obj_set_style_text_color(cy_time_label, CYBER_CYAN, 0);
     lv_obj_set_style_text_font(cy_time_label, &lv_font_montserrat_48, 0);
-    lv_obj_align(cy_time_label, LV_ALIGN_CENTER, 0, -25);
+    
+    lv_obj_set_width(cy_time_label, 240); // 占满240屏幕宽度
+    lv_obj_set_style_text_align(cy_time_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align_to(cy_time_label, cy_date_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 2); 
 
-    /* 天气区: 云图标 (左) + 温度数字 (右) */
-    lv_obj_t *cloud = create_cloud_icon();
-    lv_obj_align(cloud, LV_ALIGN_CENTER, -55, 60);
 
-    lv_obj_t *therm = create_thermometer();
-    lv_obj_align(therm, LV_ALIGN_CENTER, -5, 62);
+    /* ======== 3. 赛博朋克环形仪表: 温度 (左) + 湿度 (右) ======== */
+    /* 因为是垂直280长屏，圆弧居中靠下设置在 155，天然处于屏幕最胖、最安全的腰部，不受R角影响 */
+    int arc_y_center = 155; 
+    int arc_x_offset = 58; 
 
-    cy_temp_label = lv_label_create(app_screen);
-    lv_label_set_text(cy_temp_label, "--");
-    lv_obj_set_style_text_color(cy_temp_label, CYBER_YELLOW, 0);
-    lv_obj_set_style_text_font(cy_temp_label, &lv_font_montserrat_28, 0);
-    lv_obj_align(cy_temp_label, LV_ALIGN_CENTER, 40, 60);
+    /* ---------------- 左侧：温度弧 ---------------- */
+    cy_temp_arc = create_arc_gauge(app_screen, 76, 
+                                   -20, 50,
+                                   CYBER_CYAN, CYBER_DIM);
+    lv_obj_align(cy_temp_arc, LV_ALIGN_TOP_MID, -arc_x_offset, arc_y_center - 38);
 
-    /* 底部状态栏 (荧光绿边框) */
+    cy_temp_val_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_temp_val_label, "--°");
+    lv_obj_set_style_text_color(cy_temp_val_label, CYBER_CYAN, 0);
+    lv_obj_set_style_text_font(cy_temp_val_label, &lv_font_montserrat_14, 0);
+    lv_obj_align_to(cy_temp_val_label, cy_temp_arc, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *temp_tag = lv_label_create(app_screen);
+    lv_label_set_text(temp_tag, "温度");
+    lv_obj_set_style_text_color(temp_tag, CYBER_WHITE, 0);
+    lv_obj_set_style_text_font(temp_tag, &weather_chinese_font, 0);
+    lv_obj_align_to(temp_tag, cy_temp_arc, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
+
+    /* ---------------- 右侧：湿度弧 ---------------- */
+    cy_humid_arc = create_arc_gauge(app_screen, 76, 
+                                    0, 100,
+                                    CYBER_CYAN, CYBER_DIM);
+    lv_obj_align(cy_humid_arc, LV_ALIGN_TOP_MID, arc_x_offset, arc_y_center - 38);
+
+    cy_humid_val_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_humid_val_label, "--%");
+    lv_obj_set_style_text_color(cy_humid_val_label, CYBER_CYAN, 0);
+    lv_obj_set_style_text_font(cy_humid_val_label, &lv_font_montserrat_14, 0);
+    lv_obj_align_to(cy_humid_val_label, cy_humid_arc, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *hum_tag = lv_label_create(app_screen);
+    lv_label_set_text(hum_tag, "湿度");
+    lv_obj_set_style_text_color(hum_tag, CYBER_WHITE, 0);
+    lv_obj_set_style_text_font(hum_tag, &weather_chinese_font, 0);
+    lv_obj_align_to(hum_tag, cy_humid_arc, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
+
+
+    /* ======== 4. 中文天气 & 风速 (【改行居中】文字收缩在中央，天生免疫R角) ======== */
+
+    /* [天气描述] */
+    cy_weather_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_weather_label, "等待中...");
+    lv_obj_set_style_text_color(cy_weather_label, CYBER_PINK, 0);
+    lv_obj_set_style_text_font(cy_weather_label, &weather_chinese_font, 0);
+    
+    lv_obj_set_width(cy_weather_label, 240); 
+    lv_obj_set_style_text_align(cy_weather_label, LV_TEXT_ALIGN_CENTER, 0); 
+    lv_obj_align(cy_weather_label, LV_ALIGN_TOP_MID, 0, 204); 
+
+    /* [风速信息] */
+    cy_wind_label = lv_label_create(app_screen);
+    lv_label_set_text(cy_wind_label, "风速：--km/h");
+    lv_obj_set_style_text_color(cy_wind_label, CYBER_WHITE, 0);
+    lv_obj_set_style_text_font(cy_wind_label, &weather_chinese_font, 0);
+    
+    lv_obj_set_width(cy_wind_label, 240); 
+    lv_obj_set_style_text_align(cy_wind_label, LV_TEXT_ALIGN_CENTER, 0); 
+    lv_obj_align_to(cy_wind_label, cy_weather_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
+
+
+    /* ======== 5. 底部状态栏 (【R角优化】向上收缩安全区) ======== */
     lv_obj_t *status_box = lv_obj_create(app_screen);
-    lv_obj_set_size(status_box, 190, 32);
-    lv_obj_align(status_box, LV_ALIGN_BOTTOM_MID, 0, -12);
+    /* 稍微缩短一点宽度（200 -> 180），让长方形边框的左右两个底角远离屏幕边缘的R角 */
+    lv_obj_set_size(status_box, 180, 22); 
+    /* 【关键】从底部向上抬高到 -12 像素（原先是-4），让框体完美避开最底部的圆弧盲区 */
+    lv_obj_align(status_box, LV_ALIGN_BOTTOM_MID, 0, -12); 
+    
     lv_obj_set_style_bg_opa(status_box, LV_OPA_20, LV_PART_MAIN);
     lv_obj_set_style_bg_color(status_box, CYBER_GREEN, LV_PART_MAIN);
     lv_obj_set_style_border_color(status_box, CYBER_GREEN, LV_PART_MAIN);
@@ -452,7 +590,7 @@ static void lvgl_draw_cyberpunk_clock(void)
 
     /* 1Hz RTC 刷新 */
     lv_timer_create(cyberpunk_clock_update, 1000, NULL);
-    LOG_INF("Cyberpunk clock ready (48px + circuit + thermometer).");
+    LOG_INF("Cyberpunk clock 240x280 R-Corner layout compiled.");
 }
 
 /* ==================== 显示设备初始化函数 ==================== */

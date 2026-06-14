@@ -181,6 +181,19 @@ volatile int g_weather_code   = 0;
 volatile char g_weather_desc[32] = "等待中...";
 volatile int g_wind_speed     = 0;
 
+/* ==================== 蓝牙 & 电池状态变量 ==================== */
+
+/* [蓝牙连接标志] true=蓝牙已连接对端设备（如手机、耳机等） */
+volatile bool g_bluetooth_connected = false;
+
+/* [电池电量] 单位：百分比(0~100)，默认 100 表示满电
+ * 注意：ESP32-S3-DevKitC-1 开发板无内置电量计，需外接 ADC 读取或使用虚拟值 */
+volatile int g_battery_level = 100;
+
+/* [空气湿度] 百分比(0~100)，默认 60%RH
+ * 注意：需要从天气 API 获取或通过传感器读取 */
+volatile int g_humidity = 60;
+
 /* ==================== 同步信号量 ==================== */
 
 /*

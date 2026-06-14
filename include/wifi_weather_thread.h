@@ -78,6 +78,17 @@ extern volatile char g_weather_desc[32];
 /* [风速] 单位：km/h */
 extern volatile int g_wind_speed;
 
+/* ==================== 蓝牙 & 电池状态变量 ==================== */
+
+/* [蓝牙连接标志] true=蓝牙已连接对端设备 */
+extern volatile bool g_bluetooth_connected;
+
+/* [电池电量] 百分比(0~100)，100 表示满电 */
+extern volatile int g_battery_level;
+
+/* [空气湿度] 百分比(0~100)，单位 %RH */
+extern volatile int g_humidity;
+
 /* ==================== 线程 ID 声明 ==================== */
 
 /* [线程 ID] wifi_weather 线程的 ID，供其他代码引用
