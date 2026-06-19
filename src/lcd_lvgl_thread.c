@@ -157,7 +157,7 @@ static void lvgl_draw_boot_ui(void)
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
     lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -20);
 
-    LOG_INF("Cyberpunk boot interface drawn successfully.");
+    LOG_DBG("Cyberpunk boot interface drawn successfully.");
 }
 
 /*
@@ -591,7 +591,7 @@ static void lvgl_draw_cyberpunk_clock(void)
 
     /* 1Hz RTC 刷新 */
     lv_timer_create(cyberpunk_clock_update, 1000, NULL);
-    LOG_INF("Cyberpunk clock 240x280 R-Corner layout compiled.");
+    LOG_DBG("Cyberpunk clock 240x280 R-Corner layout compiled.");
 }
 
 /* ==================== 显示设备初始化函数 ==================== */
@@ -607,14 +607,14 @@ static const struct device *display_init(void)
                 display_dev ? display_dev->name : "NULL");
         return NULL;
     }
-    LOG_INF("Display device '%s' is ready", display_dev->name);
+    LOG_DBG("Display device '%s' is ready", display_dev->name);
 
     ret = display_blanking_off(display_dev);
     if (ret < 0 && ret != -ENOSYS) {
         LOG_ERR("Failed to turn off blanking (error %d)", ret);
         return NULL;
     }
-    LOG_INF("Display blanking turned off, screen should be lit");
+    LOG_DBG("Display blanking turned off, screen should be lit");
 
     return display_dev;
 }
@@ -625,14 +625,14 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
     const struct device *display_dev;
     uint32_t loop_count = 0;          
 
-    LOG_INF("LCD/LVGL Thread starting...");
+    LOG_DBG("LCD/LVGL Thread starting...");
 
     /* 基础稳压延时 */
     k_msleep(500);
 
     /* ---------- 步骤 1: 驱使 PWM 控制器点亮屏幕背光 ---------- */
     lcd_backlight_set(g_lcd_brightness);
-    LOG_INF("Backlight set to %d%%", g_lcd_brightness);
+    LOG_DBG("Backlight set to %d%%", g_lcd_brightness);
 
     /* ---------- 步骤 2: 初始化硬件屏显设备驱动 ---------- */
     display_dev = display_init();
@@ -647,17 +647,17 @@ void lcd_lvgl_thread_entry(void *p1, void *p2, void *p3)
         return;
     }
     g_lvgl_ready = true; 
-    LOG_INF("LVGL initialized and ready");
+    LOG_DBG("LVGL initialized and ready");
 
     /* ---------- 步骤 4: 在当前画布上渲染首屏开机信息 ---------- */
     lvgl_draw_boot_ui();
 
     /* ---------- 步骤 5: 保持上电状态展示 5 秒时间 ---------- */
-    LOG_INF("Showing dev board info for 5 seconds...");
+    LOG_DBG("Showing dev board info for 5 seconds...");
     k_sleep(K_SECONDS(5));
 
     /* ---------- 步骤 6: 绘制赛博朋克时钟界面 ---------- */
-    LOG_INF("Switching to cyberpunk clock interface...");
+    LOG_DBG("Switching to cyberpunk clock interface...");
     lvgl_draw_cyberpunk_clock();
     /*
      * 时钟界面由 LVGL 定时器 cyberpunk_clock_update 每秒自动刷新，

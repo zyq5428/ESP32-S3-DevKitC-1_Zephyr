@@ -239,7 +239,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
             (const struct wifi_status *)cb->info;
         int conn_status = (ws != NULL) ? ws->status : -1;
         if (conn_status == 0) {
-            LOG_INF("WiFi 关联成功! 等待 DHCP 分配 IP 地址...");
+            LOG_DBG("WiFi 关联成功! 等待 DHCP 分配 IP 地址...");
         } else {
             LOG_ERR("WiFi 关联失败 (错误码: %d)", conn_status);
         }
@@ -272,7 +272,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
      * 在此之后可以进行 TCP/UDP 通信
      */
     case NET_EVENT_L4_CONNECTED: {
-        LOG_INF("L4 已连接 (IP 地址已就绪)");
+        LOG_DBG("L4 已连接 (IP 地址已就绪)");
         break;
     }
 
@@ -292,7 +292,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
                                                             NET_ADDR_PREFERRED);
         if (addr != NULL) {
             net_addr_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-            LOG_INF("已获取 IP 地址: %s", ip_str);
+            LOG_DBG("已获取 IP 地址: %s", ip_str);
 
             /* [更新全局变量] 保存 IP 地址供其他线程使用 */
             strncpy((char *)g_wifi_ip_addr, ip_str,
@@ -364,7 +364,7 @@ static int wifi_mgmt_callback_register(void)
      */
     net_mgmt_add_event_callback(&wifi_mgmt_cb);
 
-    LOG_INF("WiFi 网络管理事件回调已注册");
+    LOG_DBG("WiFi 网络管理事件回调已注册");
     return 0;
 }
 
@@ -414,7 +414,7 @@ static int wifi_connect(struct net_if *iface)
         .band        = WIFI_FREQ_BAND_2_4_GHZ,
     };
 
-    LOG_INF("正在连接 WiFi: \"%s\" (安全: WPA2-PSK)...", WIFI_SSID);
+    LOG_DBG("正在连接 WiFi: \"%s\" (安全: WPA2-PSK)...", WIFI_SSID);
 
     /*
      * [发送连接请求] net_mgmt() 是同步调用，它会阻塞直到底层驱动接受请求
@@ -462,7 +462,7 @@ static int sync_time_via_sntp(void)
     int ret;
     struct sntp_time sntp_result;   /* [SNTP 结果] Unix 时间戳 (秒 + 小数秒) */
 
-    LOG_INF("正在通过 SNTP 同步网络时间 (服务器: %s)...", SNTP_SERVER);
+    LOG_DBG("正在通过 SNTP 同步网络时间 (服务器: %s)...", SNTP_SERVER);
 
     /*
      * [一次性 SNTP 查询] sntp_simple() 封装了完整的 SNTP 请求流程
@@ -618,7 +618,7 @@ static int sync_time_via_sntp(void)
 
     /* [日志] 使用局部变量避免 volatile 警告 */
     int wday = g_current_weekday;
-    LOG_INF("时间同步成功! 北京时间: %04d-%02d-%02d %02d:%02d:%02d (星期%d) | RTC 基准已建立",
+    LOG_DBG("时间同步成功! 北京时间: %04d-%02d-%02d %02d:%02d:%02d (星期%d) | RTC 基准已建立",
             year, month, day, hour, minute, second, wday);
 
     return 0;
@@ -703,7 +703,7 @@ static int fetch_weather(void)
     /* [HTTP 接收缓冲区] 静态分配避免栈溢出 (2048 字节放在 BSS 段) */
     static uint8_t recv_buf[HTTP_RECV_BUF_SIZE];
 
-    LOG_INF("正在获取天气数据 (坐标: %.2f, %.2f)...",
+    LOG_DBG("正在获取天气数据 (坐标: %.2f, %.2f)...",
             (double)WEATHER_LAT, (double)WEATHER_LON);
 
     /* ===== 步骤 1: DNS 解析主机名 → IP 地址 ===== */
@@ -833,7 +833,7 @@ static int fetch_weather(void)
     /* [字符串终止] 在缓冲区末尾添加 '\0' 以便 strstr 等字符串操作 */
     recv_buf[total_received] = '\0';
 
-    LOG_INF("HTTP 响应已接收 (%d 字节)", total_received);
+    LOG_DBG("HTTP 响应已接收 (%d 字节)", total_received);
 
     /* [关闭 socket] 数据已全部接收，释放资源 */
     zsock_close(sock_fd);
@@ -941,7 +941,7 @@ static int fetch_weather(void)
     char tmp_desc[32];
     strncpy(tmp_desc, (const char *)g_weather_desc, sizeof(tmp_desc) - 1);
     tmp_desc[sizeof(tmp_desc) - 1] = '\0';
-    LOG_INF("天气获取成功! 温度: %d°C, 湿度: %d%%, 天气: %s, 风速: %d km/h",
+    LOG_DBG("天气获取成功! 温度: %d°C, 湿度: %d%%, 天气: %s, 风速: %d km/h",
             tmp_temp, tmp_hum, tmp_desc, tmp_wind);
 
     return 0;
@@ -975,7 +975,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
     bool time_sync_done = false;        /* [标志] 是否已完成 SNTP 同步 */
     bool weather_done  = false;         /* [标志] 是否已成功获取天气 */
 
-    LOG_INF("===== WiFi + 天气 + 时间 线程启动 =====");
+    LOG_DBG("===== WiFi + 天气 + 时间 线程启动 =====");
 
     /*
      * [步骤 0] 系统基础稳压延时
@@ -998,11 +998,11 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
         LOG_ERR("  3. prj.conf 中是否启用了 CONFIG_WIFI_ESP32=y");
         return; /* [致命错误] 没有 WiFi 接口，线程退出 */
     }
-    LOG_INF("WiFi 网络接口已就绪 (wlan0)");
+    LOG_DBG("WiFi 网络接口已就绪 (wlan0)");
 
     /* ========== 步骤 2: WiFi 连接循环 (带重试) ========== */
 
-    LOG_INF("===== 开始 WiFi 连接 =====");
+    LOG_DBG("===== 开始 WiFi 连接 =====");
 
     /*
      * [连接循环] 反复尝试连接 WiFi 直到成功获取 IP 地址
@@ -1028,7 +1028,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
              * 但我们的轮询没检测到)。此时直接跳到 IP 轮询阶段。
              */
             if (ret == -EALREADY) {
-                LOG_INF("WiFi 已处于连接状态，直接等待 IP...");
+                LOG_DBG("WiFi 已处于连接状态，直接等待 IP...");
             } else {
                 LOG_ERR("WiFi 连接请求提交失败 (err=%d)，%d 秒后重试...",
                         ret, WIFI_RETRY_INTERVAL_S);
@@ -1061,7 +1061,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
 
                 /* [检查] 确认不是 0.0.0.0 这种无效地址 */
                 if (strcmp(ip_str, "0.0.0.0") != 0) {
-                    LOG_INF("已获取 IP 地址: %s (轮询 %d 次)",
+                    LOG_DBG("已获取 IP 地址: %s (轮询 %d 次)",
                             ip_str, attempt + 1);
 
                     /* [更新全局变量] 保存 IP 地址 */
@@ -1076,7 +1076,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
 
         if (got_ip) {
             /* [连接成功] */
-            LOG_INF("WiFi 连接成功! IP 地址: %s",
+            LOG_DBG("WiFi 连接成功! IP 地址: %s",
                     (const char *)g_wifi_ip_addr);
             break; /* 跳出连接重试循环 */
         } else {
@@ -1089,7 +1089,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
 
     /* ========== 步骤 3: SNTP 时间同步 ========== */
 
-    LOG_INF("===== 开始 SNTP 时间同步 =====");
+    LOG_DBG("===== 开始 SNTP 时间同步 =====");
 
     /*
      * [时间同步] 尝试通过 SNTP 获取网络时间
@@ -1104,7 +1104,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
 
     /* ========== 步骤 4: 首次天气数据获取 ========== */
 
-    LOG_INF("===== 开始首次天气数据获取 =====");
+    LOG_DBG("===== 开始首次天气数据获取 =====");
 
     /*
      * [获取天气] 发起 HTTP 请求获取当前天气
@@ -1119,9 +1119,9 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
 
     /* ========== 步骤 5: 主循环 (周期性更新 + 心跳) ========== */
 
-    LOG_INF("===== 进入主循环 (天气更新间隔: %d 秒) =====",
+    LOG_DBG("===== 进入主循环 (天气更新间隔: %d 秒) =====",
             WEATHER_UPDATE_INTERVAL_S);
-    LOG_INF("WiFi + 天气 + 时间 线程已就绪!");
+    LOG_DBG("WiFi + 天气 + 时间 线程已就绪!");
 
     /*
      * [分段延时] 将 10 分钟的等待拆分成 30 秒一段
@@ -1162,7 +1162,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
                                 strncpy((char *)g_wifi_ip_addr, ip,
                                         sizeof(g_wifi_ip_addr) - 1);
                                 g_wifi_connected = true;
-                                LOG_INF("WiFi 重连成功! IP: %s", ip);
+                                LOG_DBG("WiFi 重连成功! IP: %s", ip);
                                 break;
                             }
                         }
@@ -1175,7 +1175,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
              * (10 ticks × 30 秒 = 300 秒 = 5 分钟)
              */
             if (!time_sync_done && (loop_count % 10 == 0)) {
-                LOG_INF("重试 SNTP 时间同步...");
+                LOG_DBG("重试 SNTP 时间同步...");
                 ret = sync_time_via_sntp();
                 if (ret == 0) {
                     time_sync_done = true;
@@ -1202,7 +1202,7 @@ void wifi_weather_thread_entry(void *p1, void *p2, void *p3)
             char desc[32];
             strncpy(desc, (const char *)g_weather_desc, sizeof(desc) - 1);
             desc[sizeof(desc) - 1] = '\0';
-            LOG_INF("[心跳 #%u] WiFi=%s | %04d-%02d-%02d %02d:%02d:%02d 周%d | %d°C %d%% %s 风%dkm/h",
+            LOG_DBG("[心跳 #%u] WiFi=%s | %04d-%02d-%02d %02d:%02d:%02d 周%d | %d°C %d%% %s 风%dkm/h",
                     loop_count,
                     wc ? "已连接" : "断开",
                     y, mo, d, h, mi, s, wd, t, hd, desc, ws);
